@@ -421,6 +421,21 @@ end
 
 
 
+-- Recipients are matched against the currently logged-in character's name so
+-- rules that happen to target yourself (e.g. a global profile rule meant for
+-- a different alt) don't queue a pointless self-mail. Strips an optional
+-- "-Realm" suffix off the recipient before comparing, since UnitName("player")
+-- never includes one.
+function A:IsCurrentCharacter(recipient)
+  if not recipient or recipient == "" then return false end
+  local playerName = UnitName("player")
+  if not playerName then return false end
+  local recName = recipient:match("^(.-)%-.+$") or recipient
+  return recName:lower() == playerName:lower()
+end
+
+
+
 function A:AutomailBoe(bindType)
   return A.db.SendBOE and bindType == 2
 end
@@ -513,6 +528,10 @@ function A:BuildMailQueue(recipient, boeRecipient)
   local totalItems = 0
 
   local function queueItem(targetRecipient, bag, slot, itemLink)
+    if A:IsCurrentCharacter(targetRecipient) then
+      A:Log("Skipping", itemLink or "<unknown>", "- recipient", targetRecipient, "is the currently logged in character")
+      return
+    end
     queuedByRecipient[targetRecipient] = queuedByRecipient[targetRecipient] or {}
     tinsert(queuedByRecipient[targetRecipient], { bag = bag, slot = slot, itemLink = itemLink })
     totalItems = totalItems + 1
@@ -604,7 +623,9 @@ function A:BuildMailQueue(recipient, boeRecipient)
     -- (SendMailBatch), using GetMoney() at that point - which by then
     -- already reflects every other mail's real postage - minus this mail's
     -- own (zero-item) postage queried fresh in that moment.
-    if GetMoney() > thresholdCopper and goldRecipient and #goldRecipient > 0 then
+    if A:IsCurrentCharacter(goldRecipient) then
+      A:Log("Skipping excess gold - recipient", goldRecipient, "is the currently logged in character")
+    elseif GetMoney() > thresholdCopper and goldRecipient and #goldRecipient > 0 then
       A:Log("Queuing excess gold batch (amount computed at send time): threshold=", A.db.goldThreshold,
           "recipient=", goldRecipient)
       tinsert(batches, { recipient = goldRecipient, items = {}, goldThresholdCopper = thresholdCopper })
