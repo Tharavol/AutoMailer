@@ -2,7 +2,7 @@
 
 All notable changes to AutoMailer are documented in this file.
 
-## [Unreleased]
+## [4.5] - 2026-07-20
 
 ### Changed
 - Rules that resolve to the currently logged-in character as the recipient (default Recipient, per-item rule, BoE Recipient, or gold recipient) are now skipped instead of queuing a pointless self-mail. Useful when a shared/global profile's default recipient happens to be whichever alt you're currently playing.
