@@ -2,11 +2,12 @@
 
 ## Original Author
 
-**AutoMailer** was originally created by **RainForDays**.
+**AutoMailer** was originally created by **ChillFajita** on CurseForge, with **RainForDays** also credited as an original author.
 
 ## Maintainers / Contributors
 
-- **RainForDays** — original author and creator of AutoMailer.
+- **ChillFajita** — original author and creator of AutoMailer (published on CurseForge).
+- **RainForDays** — original author, credited in the addon's TOC metadata.
 - **Tharavol** — maintenance, retail-compatibility fixes, and new feature additions (per-item recipient rules, BoE/reagent/gold automation, global profiles, options panel rework).
 - **MAI-Code-1-Flash** and **Claude** — AI coding assistants used during development to help diagnose retail API compatibility issues and implement fixes/features.
 
