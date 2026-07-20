@@ -12,6 +12,6 @@
 
 ## Notes
 
-This fork/build updates the original addon for current WoW retail client compatibility (interface version, mail-attachment flow, options panel registration) and layers on additional configuration options on top of the original mailing concept. See [fixes.md](fixes.md) for a detailed history of the compatibility work.
+This fork/build updates the original addon for current WoW retail client compatibility (interface version, mail-attachment flow, options panel registration) and layers on additional configuration options on top of the original mailing concept.
 
 If you are the original author and would like this attribution corrected, expanded, or removed, please reach out.
