@@ -1,0 +1,13 @@
+## Interface: 120007
+## Title: AutoMailer
+## Author: RainForDays, Tharavol, MAI-Code-1-Flash, Claude
+## Notes: Automatically mail items.
+## Version: 4.4
+## DefaultState: enabled
+## SavedVariablesPerCharacter: AutoMailer
+## SavedVariables: AutoMailerGlobal
+
+## X-ReleaseNotes: Adds a "Send Mail" button to the mailbox that automatically mails items out of your bags and can be run again as many times as you like. Configure a list of "Item Name = Recipient" rules (blank recipient falls back to your default Recipient) to auto-attach specific items, optionally auto-mail all crafting reagents, and optionally auto-mail BoE items (with optional level/rarity limits) to a separate BoE Recipient. Optionally mails gold above a configurable threshold to your Recipient, automatically accounting for mail postage so your balance lands exactly on the threshold. Mails up to 12 attachments per letter and continues automatically through every batch/recipient. Shift-click while the mailbox is open to auto-start a send run; shift-click a bag item while the item-list box has focus to add it to your list. Supports an optional global profile shared across all characters, toggleable debug logging (/am debug or the options checkbox), and /am / /automailer to open options (/am list recaps what's been sent this session).
+
+AutoMailer.lua
+OptionsPanel.lua
