@@ -309,10 +309,21 @@ end
     -- MAILING EVENTS --
 ]]
 function E:MAIL_SHOW()
-  A:EnsureMailTriggerButton()
-  if MailFrame then
-    A.mailTriggerButton:Show()
+  -- On the mailbox's first open in a session, Blizzard_MailFrame can still be
+  -- loading when this event reaches us, so MailFrame doesn't exist yet.
+  -- EnsureMailTriggerButton silently no-ops in that case; retry next frame
+  -- instead of permanently missing this open (every later open works fine
+  -- since Blizzard_MailFrame is already loaded by then).
+  if not MailFrame then
+    A:Log("MAIL_SHOW: MailFrame not ready yet, retrying next frame")
+    C_Timer.After(0, function()
+      E:MAIL_SHOW()
+    end)
+    return
   end
+
+  A:EnsureMailTriggerButton()
+  A.mailTriggerButton:Show()
 
   if IsShiftKeyDown() then
     A:Log("MAIL_SHOW with shift held; auto-starting send")
@@ -682,18 +693,23 @@ function A:SendMailBatch(batch)
 
   ClearSendMail()
 
+  SendMailNameEditBox:SetText(batch.recipient)
+  SendMailNameEditBox:SetCursorPosition(0)
+
   -- The excess-gold batch defers its money amount to here (see BuildMailQueue)
-  -- since postage isn't a flat fee and can't be predicted upfront. The form
-  -- is freshly cleared above (0 items), so GetSendMailPrice() now reflects
-  -- this specific mail's real postage.
+  -- since postage isn't a flat fee and can't be predicted upfront. GetSendMailPrice()
+  -- only reports the real postage once the form actually has a recipient on it -
+  -- queried against a still-blank form (as this used to, right after ClearSendMail(),
+  -- before the recipient above was set) it under-reports, landing the balance short
+  -- by one postage's worth once the mail actually sends. Querying it now, with the
+  -- recipient already set and before any items get attached below (0 items for this
+  -- batch), reflects this specific mail's real postage. Must happen before
+  -- GetBatchSubject below, which depends on batch.money to pick the "Gold" subject.
   if batch.goldThresholdCopper then
     local postage = (GetSendMailPrice and GetSendMailPrice()) or 0
     batch.money = math.max(0, GetMoney() - batch.goldThresholdCopper - postage)
     A:Log("Resolved excess gold at send time: postage=", postage, "money=", batch.money)
   end
-
-  SendMailNameEditBox:SetText(batch.recipient)
-  SendMailNameEditBox:SetCursorPosition(0)
 
   local subject = A:GetBatchSubject(batch)
   SendMailSubjectEditBox:SetText(subject)

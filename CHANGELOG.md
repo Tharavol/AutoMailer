@@ -2,6 +2,12 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Send Mail button sometimes missing on the mailbox's first open of a session.** `MAIL_SHOW` can reach addons before Blizzard's own `Blizzard_MailFrame` module finishes loading, so `MailFrame` didn't exist yet and `EnsureMailTriggerButton` silently did nothing for that open - every later open worked because the module was already loaded by then. Fixed by retrying on the next frame when `MailFrame` isn't ready yet instead of giving up.
+- **Excess-gold threshold landing short by one mail's postage.** `GetSendMailPrice()` was queried immediately after `ClearSendMail()`, while the compose form still had no recipient on it, and under-reports postage on a form that blank - the real send afterward (with the recipient filled in) then charged the true, higher fee, leaving the balance short. Fixed by setting the recipient on the form before querying the postage, so the reading matches what the mail actually costs once it sends.
+
 ## [4.6] - 2026-07-20
 
 ### Fixed
