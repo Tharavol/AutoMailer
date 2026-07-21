@@ -97,36 +97,18 @@ function A:InitializeSavedVariables()
 end
 
 function A:GetContainerNumSlots(bag)
-  if C_Container and C_Container.GetContainerNumSlots then
-    return C_Container.GetContainerNumSlots(bag)
-  end
-  return GetContainerNumSlots(bag)
+  return C_Container.GetContainerNumSlots(bag)
 end
 
 function A:GetContainerItemInfo(bag, slot)
-  if C_Container and C_Container.GetContainerItemInfo then
-    local info = C_Container.GetContainerItemInfo(bag, slot)
-    if info then
-      return info.iconFileID, info.stackCount, info.isLocked, info.quality, info.isReadable,
-          info.hasLoot, info.hyperlink, info.isFiltered, info.noValue, info.itemID, info.isBound
-    end
-  end
-
-  if GetContainerItemInfo then
-    return GetContainerItemInfo(bag, slot)
-  end
-
-  return nil
+  local info = C_Container.GetContainerItemInfo(bag, slot)
+  if not info then return nil end
+  return info.iconFileID, info.stackCount, info.isLocked, info.quality, info.isReadable,
+      info.hasLoot, info.hyperlink, info.isFiltered, info.noValue, info.itemID, info.isBound
 end
 
 function A:GetItemInfo(itemLink)
-  if C_Item and C_Item.GetItemInfo then
-    local info = { C_Item.GetItemInfo(itemLink) }
-    if info[1] ~= nil then
-      return unpack(info)
-    end
-  end
-  return GetItemInfo(itemLink)
+  return C_Item.GetItemInfo(itemLink)
 end
 
 A.TT = CreateFrame("GameTooltip", "AutoMailerTT", nil, "GameTooltipTemplate")
@@ -663,14 +645,7 @@ function A:AttachItemToMail(bag, slot, attachIndex, itemLink)
     ClearCursor()
   end
 
-  if C_Container and C_Container.PickupContainerItem then
-    C_Container.PickupContainerItem(bag, slot)
-  elseif PickupContainerItem then
-    PickupContainerItem(bag, slot)
-  else
-    A:Log("No PickupContainerItem implementation available on this client")
-    return false
-  end
+  C_Container.PickupContainerItem(bag, slot)
 
   if not CursorHasItem() then
     A:Log("Pickup failed: cursor is empty after PickupContainerItem for", itemLink or "<unknown>")
