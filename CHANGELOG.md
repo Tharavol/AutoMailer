@@ -2,7 +2,7 @@
 
 All notable changes to AutoMailer are documented in this file.
 
-## [Unreleased]
+## [4.6] - 2026-07-20
 
 ### Fixed
 - **Bag/item lookups could throw on current retail.** `A:GetContainerNumSlots`, `A:GetItemInfo`, and the pickup step in `A:AttachItemToMail` fell back to the legacy global container/item API (`GetContainerNumSlots`, `GetItemInfo`, `PickupContainerItem`) whenever the `C_Container`/`C_Item` call didn't return a result — most commonly `GetItemInfo` on an item that isn't cached yet, a routine case, not an edge case. Those globals no longer exist on current retail, so the fallback could error with `attempt to call a nil value` instead of just returning nothing. Removed the dead fallback and call `C_Container`/`C_Item` directly.
