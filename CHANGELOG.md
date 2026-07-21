@@ -2,7 +2,7 @@
 
 All notable changes to AutoMailer are documented in this file.
 
-## [Unreleased]
+## [4.7] - 2026-07-21
 
 ### Fixed
 - **Send Mail button sometimes missing on the mailbox's first open of a session.** `MAIL_SHOW` can reach addons before Blizzard's own `Blizzard_MailFrame` module finishes loading, so `MailFrame` didn't exist yet and `EnsureMailTriggerButton` silently did nothing for that open - every later open worked because the module was already loaded by then. Fixed by retrying on the next frame when `MailFrame` isn't ready yet instead of giving up.
