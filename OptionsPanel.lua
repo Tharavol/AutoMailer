@@ -34,6 +34,11 @@ function A.CreateOptionsMenu()
   text:SetText("AutoMailer Options")
   text:SetPoint("TOPLEFT", optionsPanel, "TOPLEFT", 20, -10)
 
+  local versionText = optionsPanel:CreateFontString(nil, "OVERLAY")
+  versionText:SetFontObject("GameFontDisableSmall")
+  versionText:SetText("v" .. A:GetVersion())
+  versionText:SetPoint("LEFT", text, "RIGHT", 8, -2)
+
   local recipientHeader = optionsPanel:CreateFontString(nil, "OVERLAY")
   recipientHeader:SetFontObject("GameFontNormal")
   recipientHeader:SetText("Recipient")

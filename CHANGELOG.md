@@ -2,6 +2,14 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [Unreleased]
+
+### Added
+- The addon version now shows next to the title on the options panel and in the "Starting AutoMailer send run" chat message.
+
+### Fixed
+- **Excess-gold threshold still landing short intermittently, by whatever postage the previous mail charged.** `ProcessMailQueue` advanced to the next batch a fixed 0.3s after `MAIL_SUCCESS`, assuming that was long enough for `GetMoney()` to reflect the mail that had just sent - but that lag varies with latency, so a slow update meant the next batch's excess-gold math (`SendMailBatch`) read a stale, too-high `GetMoney()` that hadn't yet subtracted the prior mail's postage, silently short-changing the final balance by exactly that amount. Fixed by polling `GetMoney()` after `MAIL_SUCCESS` until it actually changes (capped at 2s) before advancing, instead of guessing a fixed delay.
+
 ## [4.7] - 2026-07-21
 
 ### Fixed

@@ -1,5 +1,9 @@
-local _, A = ...
+local ADDON_NAME, A = ...
 
+function A:GetVersion()
+  local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
+  return (getMetadata and getMetadata(ADDON_NAME, "Version")) or "?"
+end
 
 -- ".. tostringall(...)" only keeps tostringall's FIRST return value, since
 -- concatenation isn't a multi-result context - every argument after the
@@ -247,7 +251,7 @@ function A:StartMailSend()
     return
   end
 
-  A:Print("Starting AutoMailer send run")
+  A:Print("Starting AutoMailer send run (v" .. A:GetVersion() .. ")")
   A:Log("StartMailSend invoked")
 
   local recipient = A.db.recipient or ""
@@ -348,11 +352,29 @@ end
 function E:MAIL_SUCCESS(mailID)
   A:Log("MAIL_SUCCESS mailID=", mailID)
   A.awaitConfirmSent = false
-  if A.sendingMail then
-    C_Timer.After(0.3, function()
+  if not A.sendingMail then return end
+
+  -- GetMoney() doesn't necessarily update the instant MAIL_SUCCESS fires -
+  -- this mail's postage lands on the client's money value with a variable
+  -- delay (network latency dependent). A fixed 0.3s wait here used to just
+  -- guess that delay was over; when it wasn't, the next batch's excess-gold
+  -- math (see BuildMailQueue/SendMailBatch) read a stale, too-high GetMoney()
+  -- that still hadn't subtracted this mail's postage, silently landing the
+  -- final balance short by exactly that postage amount. Poll for the actual
+  -- change instead of guessing, with a generous fallback so a run can't stall
+  -- forever if postage was somehow already reflected before this ran.
+  local moneyBeforeSend = A.moneyBeforeSend
+  local attempts = 0
+  local function waitForMoneyUpdate()
+    if not A.sendingMail then return end
+    attempts = attempts + 1
+    if GetMoney() ~= moneyBeforeSend or attempts >= 20 then
       A:ProcessMailQueue()
-    end)
+    else
+      C_Timer.After(0.1, waitForMoneyUpdate)
+    end
   end
+  waitForMoneyUpdate()
 end
 
 function E:MAIL_FAILED()
@@ -751,6 +773,12 @@ function A:SendMailBatch(batch)
   A:Log("Calling SendMail to", batch.recipient, "with", attachedCount, "item(s) attached, money=", money,
       "subject=", subject)
   A.awaitConfirmSent = true
+  -- MAIL_SUCCESS confirms the mail queued server-side, but GetMoney() doesn't
+  -- necessarily reflect this mail's postage the instant that event fires -
+  -- recorded here so MAIL_SUCCESS can confirm the balance actually moved
+  -- before letting the next batch (e.g. an excess-gold batch reading GetMoney()
+  -- to compute its amount) proceed. See MAIL_SUCCESS for why.
+  A.moneyBeforeSend = GetMoney()
   SendMail(batch.recipient, subject, "")
 
   if money > 0 then
