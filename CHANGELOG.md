@@ -2,7 +2,7 @@
 
 All notable changes to AutoMailer are documented in this file.
 
-## [Unreleased]
+## [4.8] - 2026-07-23
 
 ### Added
 - The addon version now shows next to the title on the options panel and in the "Starting AutoMailer send run" chat message.
