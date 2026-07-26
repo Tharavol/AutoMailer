@@ -1,134 +1,366 @@
+-- AutoMailer - automatically mail items out of your bags in World of Warcraft.
+-- Copyright (C) ChillFajita, RainForDays and the AutoMailer contributors.
+-- See ATTRIBUTION.md for the full contributor list.
+--
+-- This program is free software: you can redistribute it and/or modify it
+-- under the terms of version 3 of the GNU General Public License as published
+-- by the Free Software Foundation. It is distributed WITHOUT ANY WARRANTY;
+-- without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+-- PARTICULAR PURPOSE. See the LICENSE file, or
+-- <https://www.gnu.org/licenses/gpl-3.0.html>, for the full license text.
+--
+-- SPDX-License-Identifier: GPL-3.0-only
+
 local _, A = ...
 
-local function RegisterOptionsCategory(optionsPanel)
+-- Registers the main canvas panel plus any subcategory pages hanging off it.
+-- Registration reparents the canvas frames, so this runs once both panels are
+-- fully built rather than at frame-creation time.
+local function RegisterCategories(mainPanel, subPanels)
   if Settings and Settings.RegisterCanvasLayoutCategory then
-    local category = Settings.RegisterCanvasLayoutCategory(optionsPanel, optionsPanel.name)
+    local category = Settings.RegisterCanvasLayoutCategory(mainPanel, mainPanel.name)
     if category then
       Settings.RegisterAddOnCategory(category)
-      optionsPanel.category = category
+      mainPanel.category = category
+
+      if Settings.RegisterCanvasLayoutSubcategory then
+        for _, sub in ipairs(subPanels) do
+          sub.category = Settings.RegisterCanvasLayoutSubcategory(category, sub, sub.name)
+        end
+      end
       return true
     end
   end
 
   if InterfaceOptions_AddCategory then
-    InterfaceOptions_AddCategory(optionsPanel)
+    InterfaceOptions_AddCategory(mainPanel)
+    for _, sub in ipairs(subPanels) do
+      sub.parent = mainPanel.name
+      InterfaceOptions_AddCategory(sub)
+    end
     return true
   end
 
   return false
 end
 
--- INTERFACE OPTIONS PANEL
-function A.CreateOptionsMenu()
-  local optionsPanel = CreateFrame("Frame", "AutoMailerOptions", UIParent)
-  optionsPanel.name = "AutoMailer"
-  optionsPanel:SetScript("OnShow", function(self)
-    if self.RefreshValues then
-      self:RefreshValues()
-    end
-  end)
-  RegisterOptionsCategory(optionsPanel)
+local ROW_HEIGHT = 26
+local LIST_WIDTH = 280
+local LIST_HEIGHT = 300
+local QUESTION_MARK = "Interface\\Icons\\INV_Misc_QuestionMark"
 
-  local text = optionsPanel:CreateFontString(nil, "OVERLAY")
-  text:SetFontObject("GameFontNormalHuge")
-  text:SetText("AutoMailer Options")
-  text:SetPoint("TOPLEFT", optionsPanel, "TOPLEFT", 20, -10)
+local LIST_BACKDROP = {
+  bgFile = "Interface\\TutorialFrame\\TutorialFrameBackground",
+  edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+  edgeSize = 16,
+  tile = true,
+  tileSize = 16,
+  insets = { left = 4, right = 4, top = 4, bottom = 4 }
+}
 
-  local versionText = optionsPanel:CreateFontString(nil, "OVERLAY")
-  versionText:SetFontObject("GameFontDisableSmall")
-  versionText:SetText("v" .. A:GetVersion())
-  versionText:SetPoint("LEFT", text, "RIGHT", 8, -2)
+-- Builds the "Items to AutoMail" table: a ScrollBox-backed list with one row
+-- per rule, each showing the item's icon, an editable name, an editable
+-- per-rule recipient and a delete button. Returns the backdrop frame so the
+-- caller can anchor the rest of the panel beside it.
+local function CreateItemTable(optionsPanel, anchorTo)
+  local header = optionsPanel:CreateFontString(nil, "OVERLAY")
+  header:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", -5, -15)
+  header:SetFontObject("GameFontNormal")
+  header:SetText("Items to AutoMail")
 
-  local recipientHeader = optionsPanel:CreateFontString(nil, "OVERLAY")
-  recipientHeader:SetFontObject("GameFontNormal")
-  recipientHeader:SetText("Recipient")
-  recipientHeader:SetPoint("TOPLEFT", text, "BOTTOMLEFT", 0, -15)
+  local instructions = optionsPanel:CreateFontString(nil, "OVERLAY")
+  instructions:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
+  instructions:SetFontObject("GameFontDisableSmall")
+  instructions:SetJustifyH("LEFT")
+  instructions:SetWidth(LIST_WIDTH)
+  instructions:SetText("Shift-click or drag an item from your bags to add it. "
+      .. "Leave a recipient blank to use the default Recipient.")
 
+  -- Column labels sit at the same x offsets as the matching widgets in
+  -- AutoMailerItemRowTemplate so they line up with the rows below.
+  local itemColumn = optionsPanel:CreateFontString(nil, "OVERLAY")
+  itemColumn:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", 34, -8)
+  itemColumn:SetFontObject("GameFontNormalSmall")
+  itemColumn:SetText("Item")
 
+  local recipientColumn = optionsPanel:CreateFontString(nil, "OVERLAY")
+  recipientColumn:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", 158, -8)
+  recipientColumn:SetFontObject("GameFontNormalSmall")
+  recipientColumn:SetText("Recipient")
 
-  local recipientBox = CreateFrame("EditBox", "recipientBox", optionsPanel, "InputBoxTemplate")
-  recipientBox:SetPoint("TOPLEFT", recipientHeader, "BOTTOMLEFT", 5, 0)
-  recipientBox:SetSize(200, 30)
-  recipientBox:SetFontObject("ChatFontNormal")
-  recipientBox:SetMultiLine(false)
-  recipientBox:SetText(A.db.recipient)
-  recipientBox:SetCursorPosition(0)
-  recipientBox:SetAutoFocus(false)
-  recipientBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-  recipientBox:SetScript("OnKeyUp", function(self)
-    A.db.recipient = self:GetText()
-  end)
-  recipientBox:SetScript("OnEnterPressed", function(self)
-    A.db.recipient = self:GetText()
-    self:ClearFocus()
-  end)
+  local scrollBox = CreateFrame("Frame", nil, optionsPanel, "WowScrollBoxList")
+  scrollBox:SetSize(LIST_WIDTH, LIST_HEIGHT)
+  scrollBox:SetPoint("TOPLEFT", itemColumn, "BOTTOMLEFT", -34, -6)
+  scrollBox:EnableMouse(true)
 
-  optionsPanel.recipientBox = recipientBox
-
-  local itemsHeader = optionsPanel:CreateFontString(nil, "OVERLAY")
-  itemsHeader:SetPoint("TOPLEFT", recipientBox, "BOTTOMLEFT", 0, -15)
-  itemsHeader:SetFontObject("GameFontNormal")
-  itemsHeader:SetText("Items to AutoMail")
-
-  optionsPanel.itemsHeader = itemsHeader
-
-  local listInstructions = optionsPanel:CreateFontString(nil, "OVERLAY")
-  listInstructions:SetPoint("TOPLEFT", itemsHeader, "BOTTOMLEFT", 0, -6)
-  listInstructions:SetFontObject("GameFontNormalSmall")
-  listInstructions:SetText(
-      "Format each line as Item Name = Recipient\nLeave the recipient blank to use the default recipient.")
-
-  local backdrop = {
-    bgFile = "Interface\\TutorialFrame\\TutorialFrameBackground",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    edgeSize = 16,
-    tile = true,
-    tileSize = 16,
-    insets = { left = 4, right = 4, top = 4, bottom = 4 }
-  }
-
-  local itemsFrame = CreateFrame("ScrollFrame", nil, optionsPanel, "UIPanelScrollFrameTemplate")
-  itemsFrame:SetPoint("TOPLEFT", itemsHeader, "BOTTOMLEFT", 0, -5)
-  itemsFrame:SetSize(275, 300)
-  itemsFrame:SetScript("OnMouseUp", function(self)
-    A.optionsPanel.items:SetFocus()
-  end)
-
-  optionsPanel.itemsFrame = itemsFrame
+  local scrollBar = CreateFrame("EventFrame", nil, optionsPanel, "MinimalScrollBar")
+  scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 8, 0)
+  scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 8, 0)
 
   local itemsBG = CreateFrame("Frame", nil, optionsPanel, BackdropTemplateMixin and "BackdropTemplate")
-  itemsBG:SetPoint("CENTER", itemsFrame, "CENTER")
-  itemsBG:SetSize(285, 310)
-  itemsBG.backdropInfo = backdrop
+  itemsBG:SetPoint("TOPLEFT", scrollBox, "TOPLEFT", -8, 8)
+  itemsBG:SetPoint("BOTTOMRIGHT", scrollBar, "BOTTOMRIGHT", 8, -8)
+  itemsBG.backdropInfo = LIST_BACKDROP
   itemsBG:ApplyBackdrop()
+  itemsBG:SetFrameLevel(math.max(1, scrollBox:GetFrameLevel() - 1))
 
+  local emptyText = scrollBox:CreateFontString(nil, "OVERLAY")
+  emptyText:SetPoint("TOP", scrollBox, "TOP", 0, -16)
+  emptyText:SetWidth(LIST_WIDTH - 30)
+  emptyText:SetFontObject("GameFontDisableSmall")
+  emptyText:SetJustifyH("CENTER")
+  emptyText:SetText("No items yet.\n\nShift-click an item in your bags, drag one\nonto this list, or press Add Item below.")
 
-  local items = CreateFrame("EditBox", nil, itemsFrame)
-  items:SetFrameStrata("DIALOG")
-  items:SetPoint("TOP", itemsFrame, "TOP", 0, -10)
-  local fontPath, fontSize = GameFontNormal:GetFont()
-  if fontPath and fontSize then
-    items:SetFont(fontPath, fontSize, "")
-  else
-    items:SetFontObject("GameFontNormal")
+  local RefreshList
+
+  local function UpdateRecipientHint(row)
+    local isEmpty = A:Trim(row.Recipient:GetText()) == ""
+    local fallback = A:Trim(A.db.recipient)
+    row.RecipientHint:SetText(fallback ~= "" and fallback or "no default set")
+    row.RecipientHint:SetShown(isEmpty and not row.Recipient.hasFocus)
   end
-  items:SetWidth(265)
-  items:SetHeight(300)
-  items:SetText(A.db.items)
-  items:SetAutoFocus(false)
-  items:SetMultiLine(true)
-  items:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-  items:SetScript("OnKeyUp", function(self)
-    A.db.items = self:GetText()
+
+  -- Rules with an itemID show the real item icon and quality color; rules
+  -- matched by name only get a question mark, which is also the visual cue
+  -- that they match loosely (see A:GetAutoMailEntry).
+  local function UpdateRowItem(row, entry)
+    local icon, quality
+
+    if entry.itemID then
+      icon = select(5, C_Item.GetItemInfoInstant(entry.itemID))
+      local name, _, itemQuality = C_Item.GetItemInfo(entry.itemID)
+      if name then
+        entry.itemName = name
+        quality = itemQuality
+        if not row.Name:HasFocus() then
+          row.Name:SetText(name)
+          row.Name:SetCursorPosition(0)
+        end
+      elseif Item and Item.CreateFromItemID then
+        -- Item data isn't cached yet; redraw this row once the client has it,
+        -- but only if the row hasn't been recycled onto a different rule.
+        local item = Item:CreateFromItemID(entry.itemID)
+        if not item:IsItemEmpty() then
+          item:ContinueOnItemLoad(function()
+            if row.entry == entry then
+              UpdateRowItem(row, entry)
+            end
+          end)
+        end
+      end
+    end
+
+    row.IconButton.Icon:SetTexture(icon or QUESTION_MARK)
+
+    local color = quality and ITEM_QUALITY_COLORS[quality]
+    if color then
+      row.Name:SetTextColor(color.r, color.g, color.b)
+    else
+      row.Name:SetTextColor(1, 1, 1)
+    end
+  end
+
+  local function FindEntryByItemID(itemID)
+    for _, entry in ipairs(A:GetAutoMailEntries()) do
+      if entry.itemID == itemID then return entry end
+    end
+    return nil
+  end
+
+  local function AddItemByID(itemID, fallbackName)
+    if not itemID then return false end
+    if FindEntryByItemID(itemID) then
+      A:Print((C_Item.GetItemInfo(itemID) or fallbackName or "That item") .. " is already in your list.")
+      return false
+    end
+    tinsert(A:GetAutoMailEntries(), {
+      itemID = itemID,
+      itemName = C_Item.GetItemInfo(itemID) or fallbackName or "",
+      recipient = "",
+    })
+    RefreshList()
+    return true
+  end
+
+  -- Handles both halves of the drag flow: an actual drag-and-drop (via
+  -- OnReceiveDrag) and the pick-up-then-click flow, which delivers the item
+  -- on the cursor rather than as a drag.
+  local function TakeCursorItem()
+    local kind, id, link = GetCursorInfo()
+    if kind ~= "item" then return nil end
+    ClearCursor()
+    return id or A:GetItemIDFromLink(link), link
+  end
+
+  local function AddFromCursor()
+    local itemID, link = TakeCursorItem()
+    if not itemID then return false end
+    return AddItemByID(itemID, link and C_Item.GetItemInfo(link))
+  end
+
+  local function ReplaceRowFromCursor(row)
+    if not row.entry then return end
+    local itemID = TakeCursorItem()
+    if not itemID then return end
+    if FindEntryByItemID(itemID) then
+      A:Print("That item is already in your list.")
+      return
+    end
+    row.entry.itemID = itemID
+    row.entry.itemName = C_Item.GetItemInfo(itemID) or row.entry.itemName
+    RefreshList()
+  end
+
+  local function DeleteRow(row)
+    local target = row.entry
+    if not target then return end
+    local entries = A:GetAutoMailEntries()
+    for i, entry in ipairs(entries) do
+      if entry == target then
+        tremove(entries, i)
+        break
+      end
+    end
+    RefreshList()
+  end
+
+  -- Typing over the name turns an exact-item rule back into a loose name
+  -- rule, which is the only way to get back to "match anything containing
+  -- this word" once a rule was added by clicking an item.
+  local function CommitName(row)
+    local entry = row.entry
+    if not entry then return end
+    local text = A:Trim(row.Name:GetText())
+    if text == (entry.itemName or "") then return end
+    entry.itemName = text
+    entry.itemID = nil
+    UpdateRowItem(row, entry)
+  end
+
+  local function CommitRecipient(row)
+    local entry = row.entry
+    if not entry then return end
+    entry.recipient = A:Trim(row.Recipient:GetText())
+    UpdateRecipientHint(row)
+  end
+
+  -- Scripts are wired once per frame, not once per rule: ScrollBox recycles
+  -- row frames, so handlers read row.entry at call time rather than closing
+  -- over whichever rule the row happened to show when it was created.
+  local function InitRowScripts(row)
+    row.RecipientHint:SetPoint("LEFT", row.Recipient, "LEFT", 6, 0)
+
+    row.Name:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    row.Name:SetScript("OnEscapePressed", function(self)
+      self:SetText(row.entry and row.entry.itemName or "")
+      self:ClearFocus()
+    end)
+    row.Name:SetScript("OnEditFocusLost", function() CommitName(row) end)
+
+    row.Recipient:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    row.Recipient:SetScript("OnEscapePressed", function(self)
+      self:SetText(row.entry and row.entry.recipient or "")
+      self:ClearFocus()
+    end)
+    row.Recipient:SetScript("OnEditFocusGained", function(self)
+      self.hasFocus = true
+      UpdateRecipientHint(row)
+    end)
+    row.Recipient:SetScript("OnEditFocusLost", function(self)
+      self.hasFocus = false
+      CommitRecipient(row)
+    end)
+
+    row.IconButton:SetScript("OnEnter", function(self)
+      local entry = row.entry
+      if not (entry and entry.itemID) then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetItemByID(entry.itemID)
+      GameTooltip:Show()
+    end)
+    row.IconButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row.IconButton:SetScript("OnClick", function() ReplaceRowFromCursor(row) end)
+    row.IconButton:SetScript("OnReceiveDrag", function() ReplaceRowFromCursor(row) end)
+
+    row.Delete:SetScript("OnClick", function() DeleteRow(row) end)
+    row.Delete:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetText("Remove this item")
+      GameTooltip:Show()
+    end)
+    row.Delete:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    row:SetScript("OnClick", function() AddFromCursor() end)
+    row:SetScript("OnReceiveDrag", function() AddFromCursor() end)
+  end
+
+  local function InitRow(row, entry)
+    row.entry = entry
+
+    if not row.scriptsInitialized then
+      row.scriptsInitialized = true
+      InitRowScripts(row)
+    end
+
+    row.Name:SetText(entry.itemName or "")
+    row.Name:SetCursorPosition(0)
+    row.Recipient:SetText(entry.recipient or "")
+    row.Recipient:SetCursorPosition(0)
+    row.Recipient.hasFocus = false
+
+    UpdateRowItem(row, entry)
+    UpdateRecipientHint(row)
+
+    local dataProvider = scrollBox:GetDataProvider()
+    local index = dataProvider and dataProvider.FindIndex and dataProvider:FindIndex(entry)
+    row.Stripe:SetShown((index or 1) % 2 == 0)
+  end
+
+  local view = CreateScrollBoxListLinearView()
+  view:SetElementExtent(ROW_HEIGHT)
+  view:SetPadding(2, 2, 2, 2, 2)
+  view:SetElementInitializer("AutoMailerItemRowTemplate", InitRow)
+  ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+
+  -- Rules are edited in place on A.db.items, so the list is redrawn by
+  -- rebuilding the data provider around that same table rather than by
+  -- mutating the provider. RetainScrollPosition keeps a deletion or an edit
+  -- from bouncing the user back to the top of a long list.
+  RefreshList = function()
+    local entries = A:GetAutoMailEntries()
+    scrollBox:SetDataProvider(CreateDataProvider(entries), ScrollBoxConstants.RetainScrollPosition)
+    emptyText:SetShown(#entries == 0)
+  end
+
+  scrollBox:SetScript("OnReceiveDrag", AddFromCursor)
+  scrollBox:SetScript("OnMouseUp", AddFromCursor)
+
+  local addButton = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
+  addButton:SetSize(110, 22)
+  addButton:SetText("Add Item")
+  addButton:SetPoint("TOPLEFT", itemsBG, "BOTTOMLEFT", 4, -6)
+  addButton:SetScript("OnReceiveDrag", AddFromCursor)
+  addButton:SetScript("OnClick", function()
+    if AddFromCursor() then return end
+
+    local entry = { itemName = "", recipient = "" }
+    tinsert(A:GetAutoMailEntries(), entry)
+    RefreshList()
+    if scrollBox.ScrollToEnd then
+      scrollBox:ScrollToEnd()
+    end
+    -- The row frame for a brand new rule only exists after the ScrollBox has
+    -- laid out the rebuilt provider, so grab it on the next frame.
+    C_Timer.After(0, function()
+      local row = scrollBox.FindFrame and scrollBox:FindFrame(entry)
+      if row then
+        row.Name:SetFocus()
+      end
+    end)
   end)
 
-  itemsFrame:SetScrollChild(items)
-  optionsPanel.items = items
-
-
-
   --[[
-    SHIFT CLICKING ITEMS TO EDITBOX
+    SHIFT CLICKING ITEMS INTO THE LIST
 
     ContainerFrameItemButton_OnModifiedClick no longer exists as an
     overridable global as of patch 10.0 (bag item clicks moved into
@@ -139,259 +371,312 @@ function A.CreateOptionsMenu()
   hooksecurefunc("HandleModifiedItemClick", function(itemLink, itemLocation)
     if not itemLink then return end
     if not (itemLocation and itemLocation.IsBagAndSlot and itemLocation:IsBagAndSlot()) then return end
-    if not (A.optionsPanel.items:IsVisible() and A.optionsPanel.items:HasFocus()) then return end
+    if not optionsPanel:IsVisible() then return end
 
-    local itemName = A:GetItemInfo(itemLink)
-    if not itemName or itemName == "" then
-      itemName = itemLink
-    end
-    local curPos = A.optionsPanel.items:GetCursorPosition()
-    local newlineIndex = string.find(A.optionsPanel.items:GetText(), "\n", curPos-1)
-    if newlineIndex and newlineIndex > curPos then
-      A.optionsPanel.items:Insert("\n"..itemName)
-    else
-      A.optionsPanel.items:Insert(itemName.."\n")
-    end
+    AddItemByID(A:GetItemIDFromLink(itemLink), C_Item.GetItemInfo(itemLink))
   end)
 
-
-
-  local GlobalProfileCB = CreateFrame("CheckButton", "AMGlobalProfileCB", optionsPanel, "ChatConfigCheckButtonTemplate")
-  GlobalProfileCB:SetChecked(AutoMailer.useGlobalProfile or false)
-  GlobalProfileCB:SetPoint("TOPLEFT", itemsBG, "TOPRIGHT", 30, 0)
-  GlobalProfileCB:SetScript("OnClick", function(self)
-    AutoMailer.useGlobalProfile = self:GetChecked()
-    A:RefreshActiveProfile()
-    optionsPanel:RefreshValues()
-  end)
-  optionsPanel.globalProfileCB = GlobalProfileCB
-
-  local GlobalProfileText = GlobalProfileCB:CreateFontString(nil, "OVERLAY")
-  GlobalProfileText:SetPoint("LEFT", GlobalProfileCB, "RIGHT", 5, 0)
-  GlobalProfileText:SetFontObject("GameFontNormal")
-  GlobalProfileText:SetText("Use one global profile for all characters")
-
-
-
-  local BOECB = CreateFrame("CheckButton", "AMBOECB", optionsPanel, "ChatConfigCheckButtonTemplate")
-  BOECB:SetChecked(A.db.SendBOE or false)
-  BOECB:SetPoint("TOPLEFT", GlobalProfileCB, "BOTTOMLEFT", 0, -10)
-  BOECB:SetScript("OnClick", function(self)
-    A.db.SendBOE = self:GetChecked()
-  end)
-
-  local BOETEXT = BOECB:CreateFontString(nil, "OVERLAY")
-  BOETEXT:SetPoint("LEFT", BOECB, "RIGHT", 5, 0)
-  BOETEXT:SetFontObject("GameFontNormal")
-  BOETEXT:SetText("Automatically send BoEs")
-
-  local BOELEVELLIMIT = CreateFrame("CheckButton", "AMBOELVLLIMITCB", optionsPanel, "ChatConfigCheckButtonTemplate")
-  BOELEVELLIMIT:SetChecked(A.db.LimitBoeLevel or false)
-  BOELEVELLIMIT:SetPoint("TOPLEFT", BOECB, "BOTTOMLEFT", 5, 0)
-  BOELEVELLIMIT:SetScript("OnClick", function(self)
-    A.db.LimitBoeLevel = self:GetChecked()
-  end)
-
-  local BOELIMITTEXT = BOELEVELLIMIT:CreateFontString(nil, "OVERLAY")
-  BOELIMITTEXT:SetPoint("LEFT", BOELEVELLIMIT, "RIGHT", 5, 0)
-  BOELIMITTEXT:SetFontObject("GameFontNormal")
-  BOELIMITTEXT:SetText("Only BoEs with required level lower than yours")
-
-
-  local boeRecipientHeader = optionsPanel:CreateFontString(nil, "OVERLAY")
-  boeRecipientHeader:SetFontObject("GameFontNormal")
-  boeRecipientHeader:SetText("BoE Recipient")
-  boeRecipientHeader:SetPoint("TOPLEFT", BOELIMITTEXT, "BOTTOMLEFT", -30, -15)
-
-
-
-  local boeRecipientBox = CreateFrame("EditBox", "boeRecipientBox", optionsPanel, "InputBoxTemplate")
-  boeRecipientBox:SetPoint("TOPLEFT", boeRecipientHeader, "BOTTOMLEFT", 5, 0)
-  boeRecipientBox:SetSize(200, 30)
-  boeRecipientBox:SetFontObject("ChatFontNormal")
-  boeRecipientBox:SetMultiLine(false)
-  boeRecipientBox:SetText(A.db.boeRecipient)
-  boeRecipientBox:SetCursorPosition(0)
-  boeRecipientBox:SetAutoFocus(false)
-  boeRecipientBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-  boeRecipientBox:SetScript("OnKeyUp", function(self)
-    A.db.boeRecipient = self:GetText()
-  end)
-  boeRecipientBox:SetScript("OnEnterPressed", function(self)
-    A.db.boeRecipient = self:GetText()
-    self:ClearFocus()
-  end)
-  optionsPanel.boeRecipientBox = boeRecipientBox
-
-
-  local BOELIMITRARITYCB = CreateFrame("CheckButton", "AMBOELIMITRARITYCB", optionsPanel,
-      "ChatConfigCheckButtonTemplate")
-  BOELIMITRARITYCB:SetChecked(A.db.limitBoeRarity or false)
-  BOELIMITRARITYCB:SetPoint("TOPLEFT", boeRecipientBox, "BOTTOMLEFT", 0, 0)
-  BOELIMITRARITYCB:SetScript("OnClick", function(self)
-    A.db.limitBoeRarity = self:GetChecked()
-  end)
-
-  local BOELIMITRARITYTEXT = BOELIMITRARITYCB:CreateFontString(nil, "OVERLAY")
-  BOELIMITRARITYTEXT:SetPoint("LEFT", BOELIMITRARITYCB, "RIGHT", 5, 0)
-  BOELIMITRARITYTEXT:SetFontObject("GameFontNormal")
-  BOELIMITRARITYTEXT:SetText("Limit rarity")
-
-
-
-  local rarities = {ITEM_QUALITY0_DESC, ITEM_QUALITY1_DESC, ITEM_QUALITY2_DESC, ITEM_QUALITY3_DESC, ITEM_QUALITY4_DESC}
-  local RARITYLIMIT = CreateFrame("Frame", "AUTOMAILERRARITYLIMIT", optionsPanel, "UIDropDownMenuTemplate")
-  RARITYLIMIT:SetPoint("TOPLEFT", BOELIMITRARITYCB, "BOTTOMLEFT", -24, -5)
-  RARITYLIMIT.displayMode = "MENU"
-  RARITYLIMIT.info = {}
-  RARITYLIMIT.initialize = function(self, level)
-    if not level then return end
-
-    for i, rarity in pairs(rarities) do
-      if i >= 3 then -- 3rd entry is uncommon
-        local info = UIDropDownMenu_CreateInfo()
-
-        info.text = rarity
-        info.arg1 = rarity
-        info.func = A.SetRarityLimit
-        info.checked = rarity == _G["ITEM_QUALITY" .. A.db.boeRarityLimit .. "_DESC"]
-
-        UIDropDownMenu_AddButton(info, 1)
-      end
+  optionsPanel.RefreshItemList = RefreshList
+  -- Every row's placeholder shows the default Recipient, so editing that
+  -- field has to repaint the rows - without rebuilding the list out from
+  -- under whichever edit box currently has focus.
+  optionsPanel.UpdateRecipientHints = function()
+    if scrollBox.ForEachFrame then
+      scrollBox:ForEachFrame(UpdateRecipientHint)
     end
   end
-  optionsPanel.rarityLimit = RARITYLIMIT
-  UIDropDownMenu_SetText(optionsPanel.rarityLimit, _G["ITEM_QUALITY" .. A.db.boeRarityLimit .. "_DESC"])
 
+  RefreshList()
 
-
-  local ReagentCB = CreateFrame("CheckButton", "AMReagentCB", optionsPanel, "ChatConfigCheckButtonTemplate")
-  ReagentCB:SetChecked(A.db.SendReagents or false)
-  ReagentCB:SetPoint("TOPLEFT", BOECB, "BOTTOMLEFT", 0, -180)
-  ReagentCB:SetScript("OnClick", function(self)
-    A.db.SendReagents = self:GetChecked()
-  end)
-
-  local ReagentText = ReagentCB:CreateFontString(nil, "OVERLAY")
-  ReagentText:SetPoint("LEFT", ReagentCB, "RIGHT", 5, 0)
-  ReagentText:SetFontObject("GameFontNormal")
-  ReagentText:SetText("Send all Crafting Reagents")
-
-
-
-  local GoldCB = CreateFrame("CheckButton", "AMGoldCB", optionsPanel, "ChatConfigCheckButtonTemplate")
-  GoldCB:SetChecked(A.db.sendExcessGold or false)
-  GoldCB:SetPoint("TOPLEFT", ReagentCB, "BOTTOMLEFT", 0, -15)
-  GoldCB:SetScript("OnClick", function(self)
-    A.db.sendExcessGold = self:GetChecked()
-  end)
-  optionsPanel.goldCB = GoldCB
-
-  local GoldText = GoldCB:CreateFontString(nil, "OVERLAY")
-  GoldText:SetPoint("LEFT", GoldCB, "RIGHT", 5, 0)
-  GoldText:SetFontObject("GameFontNormal")
-  GoldText:SetText("Send gold above threshold to Recipient")
-
-  local goldThresholdHeader = optionsPanel:CreateFontString(nil, "OVERLAY")
-  goldThresholdHeader:SetFontObject("GameFontNormal")
-  goldThresholdHeader:SetText("Gold Threshold")
-  goldThresholdHeader:SetPoint("TOPLEFT", GoldCB, "BOTTOMLEFT", 0, -10)
-
-  local goldThresholdBox = CreateFrame("EditBox", "AMGoldThresholdBox", optionsPanel, "InputBoxTemplate")
-  goldThresholdBox:SetPoint("TOPLEFT", goldThresholdHeader, "BOTTOMLEFT", 5, 0)
-  goldThresholdBox:SetSize(100, 30)
-  goldThresholdBox:SetFontObject("ChatFontNormal")
-  goldThresholdBox:SetMultiLine(false)
-  goldThresholdBox:SetNumeric(true)
-  goldThresholdBox:SetText(tostring(A.db.goldThreshold or 50000))
-  goldThresholdBox:SetCursorPosition(0)
-  goldThresholdBox:SetAutoFocus(false)
-  goldThresholdBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-  goldThresholdBox:SetScript("OnKeyUp", function(self)
-    local value = tonumber(self:GetText())
-    if value then
-      A.db.goldThreshold = value
-    end
-  end)
-  goldThresholdBox:SetScript("OnEnterPressed", function(self)
-    local value = tonumber(self:GetText())
-    A.db.goldThreshold = value or A.db.goldThreshold
-    self:SetText(tostring(A.db.goldThreshold))
-    self:SetCursorPosition(0)
-    self:ClearFocus()
-  end)
-  optionsPanel.goldThresholdBox = goldThresholdBox
-
-
-
-
-
-  local loginMessage = CreateFrame("CheckButton", nil, optionsPanel, "UICheckButtonTemplate")
-  loginMessage:SetSize(25,25)
-  loginMessage:SetPoint("BOTTOMLEFT", optionsPanel, "BOTTOMLEFT", 10, 3)
-  loginMessage:SetScript("OnClick", function(self, button)
-    AutoMailer.loginMessage = self:GetChecked()
-  end)
-  loginMessage:SetChecked(AutoMailer.loginMessage)
-  optionsPanel.loginMessage = loginMessage
-
-  local loginMessageText = loginMessage:CreateFontString(nil, "OVERLAY")
-  loginMessageText:SetFontObject("GameFontNormal")
-  loginMessageText:SetPoint("LEFT", loginMessage, "RIGHT", 3, 0)
-  loginMessageText:SetText("Display login message")
-  optionsPanel.loginMessageText = loginMessageText
-
-  local debugLoggingCB = CreateFrame("CheckButton", nil, optionsPanel, "UICheckButtonTemplate")
-  debugLoggingCB:SetSize(25,25)
-  debugLoggingCB:SetPoint("BOTTOMLEFT", loginMessage, "TOPLEFT", 0, 8)
-  debugLoggingCB:SetScript("OnClick", function(self, button)
-    AutoMailer.debugLogging = self:GetChecked()
-  end)
-  debugLoggingCB:SetChecked(AutoMailer.debugLogging)
-  optionsPanel.debugLoggingCB = debugLoggingCB
-
-  local debugLoggingText = debugLoggingCB:CreateFontString(nil, "OVERLAY")
-  debugLoggingText:SetFontObject("GameFontNormal")
-  debugLoggingText:SetPoint("LEFT", debugLoggingCB, "RIGHT", 3, 0)
-  debugLoggingText:SetText("Enable debug logging")
-  optionsPanel.debugLoggingText = debugLoggingText
-
-  -- Re-syncs every control to the currently active profile (A.db) and the
-  -- always-per-character meta prefs. Called on OnShow and whenever the
-  -- global-profile toggle switches which table A.db points at.
-  optionsPanel.RefreshValues = function(self)
-    self.items:SetText(A.db.items or "")
-    self.items:SetCursorPosition(0)
-    self.recipientBox:SetText(A.db.recipient or "")
-    self.recipientBox:SetCursorPosition(0)
-    self.boeRecipientBox:SetText(A.db.boeRecipient or "")
-    self.boeRecipientBox:SetCursorPosition(0)
-
-    self.globalProfileCB:SetChecked(AutoMailer.useGlobalProfile or false)
-    BOECB:SetChecked(A.db.SendBOE or false)
-    BOELEVELLIMIT:SetChecked(A.db.LimitBoeLevel or false)
-    BOELIMITRARITYCB:SetChecked(A.db.limitBoeRarity or false)
-    UIDropDownMenu_SetText(self.rarityLimit, _G["ITEM_QUALITY" .. (A.db.boeRarityLimit or 4) .. "_DESC"])
-    ReagentCB:SetChecked(A.db.SendReagents or false)
-
-    self.goldCB:SetChecked(A.db.sendExcessGold or false)
-    self.goldThresholdBox:SetText(tostring(A.db.goldThreshold or 50000))
-    self.goldThresholdBox:SetCursorPosition(0)
-
-    self.debugLoggingCB:SetChecked(AutoMailer.debugLogging or false)
-    self.loginMessage:SetChecked(AutoMailer.loginMessage or false)
-  end
-
-  A.optionsPanel = optionsPanel
+  return itemsBG
 end
 
+--[[ WIDGET HELPERS ]]
 
-function A.SetRarityLimit(self, arg1, arg2, checked)
-  local quals = {}
-  quals[ITEM_QUALITY2_DESC] = Enum.ItemQuality.Uncommon
-  quals[ITEM_QUALITY3_DESC] = Enum.ItemQuality.Rare
-  quals[ITEM_QUALITY4_DESC] = Enum.ItemQuality.Epic
+-- All of these deliberately create frames with nil names. The panel used to
+-- name them ("recipientBox", "boeRecipientBox" in particular), which put
+-- generic identifiers straight into _G where any other addon creating the
+-- same name would collide - whichever loaded second silently won.
+local function CreateCheckbox(parent, label, getter, setter)
+  local checkbox = CreateFrame("CheckButton", nil, parent, "ChatConfigCheckButtonTemplate")
 
-  A.db.boeRarityLimit = quals[arg1]
-  UIDropDownMenu_SetText(A.optionsPanel.rarityLimit, arg1)
+  local text = checkbox:CreateFontString(nil, "OVERLAY")
+  text:SetPoint("LEFT", checkbox, "RIGHT", 5, 0)
+  text:SetFontObject("GameFontNormal")
+  text:SetText(label)
+  checkbox.Label = text
+
+  checkbox:SetScript("OnClick", function(self)
+    setter(self:GetChecked() and true or false)
+  end)
+  checkbox.Refresh = function(self)
+    self:SetChecked(getter() and true or false)
+  end
+  checkbox:Refresh()
+
+  return checkbox
+end
+
+-- OnTextChanged with the userInput guard replaces the old OnKeyUp handlers:
+-- it catches pasted text (which fires no key event) and doesn't fire back on
+-- the addon's own SetText calls during a refresh.
+local function CreateTextBox(parent, width, getter, setter, numeric)
+  local box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+  box:SetSize(width, 30)
+  box:SetFontObject("ChatFontNormal")
+  box:SetMultiLine(false)
+  box:SetAutoFocus(false)
+  if numeric then
+    box:SetNumeric(true)
+  end
+
+  box.Refresh = function(self)
+    self:SetText(getter())
+    self:SetCursorPosition(0)
+  end
+  box:SetScript("OnTextChanged", function(self, userInput)
+    if userInput then
+      setter(self:GetText())
+    end
+  end)
+  box:SetScript("OnEnterPressed", function(self)
+    setter(self:GetText())
+    self:Refresh()
+    self:ClearFocus()
+  end)
+  box:SetScript("OnEscapePressed", function(self)
+    self:Refresh()
+    self:ClearFocus()
+  end)
+  box:Refresh()
+
+  return box
+end
+
+local function CreateHeader(parent, label, anchorTo, xOff, yOff, fontObject)
+  local header = parent:CreateFontString(nil, "OVERLAY")
+  header:SetFontObject(fontObject or "GameFontNormal")
+  header:SetText(label)
+  if anchorTo then
+    header:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", xOff or 0, yOff or -12)
+  end
+  return header
+end
+
+local function RarityText(quality)
+  return _G["ITEM_QUALITY" .. (quality or 4) .. "_DESC"] or tostring(quality)
+end
+
+--[[ MAIN PANEL - recipient and the item rule table ]]
+
+local function CreateMainPanel()
+  local panel = CreateFrame("Frame", "AutoMailerOptions", UIParent)
+  panel.name = "AutoMailer"
+
+  local title = panel:CreateFontString(nil, "OVERLAY")
+  title:SetFontObject("GameFontNormalHuge")
+  title:SetText("AutoMailer Options")
+  title:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -10)
+
+  local versionText = panel:CreateFontString(nil, "OVERLAY")
+  versionText:SetFontObject("GameFontDisableSmall")
+  versionText:SetText("v" .. A:GetVersion())
+  versionText:SetPoint("LEFT", title, "RIGHT", 8, -2)
+
+  local recipientHeader = CreateHeader(panel, "Recipient", title, 0, -15)
+
+  local recipientBox = CreateTextBox(panel, 200,
+      function() return A.db.recipient or "" end,
+      function(value)
+        A.db.recipient = value
+        -- Every row's blank-recipient placeholder shows this value.
+        if panel.UpdateRecipientHints then
+          panel.UpdateRecipientHints()
+        end
+      end)
+  recipientBox:SetPoint("TOPLEFT", recipientHeader, "BOTTOMLEFT", 5, 0)
+  panel.recipientBox = recipientBox
+
+  local itemsBG = CreateItemTable(panel, recipientBox)
+
+  local globalProfileCB = CreateCheckbox(panel, "Use one global profile for all characters",
+      function() return AutoMailer.useGlobalProfile end,
+      function(value)
+        AutoMailer.useGlobalProfile = value
+        A:RefreshActiveProfile()
+        -- Switching profiles swaps the table every control reads from, so
+        -- both pages have to resync, not just this one.
+        A:RefreshOptionsPanels()
+      end)
+  globalProfileCB:SetPoint("TOPLEFT", itemsBG, "TOPRIGHT", 20, 0)
+  panel.globalProfileCB = globalProfileCB
+
+  local moreSettings = panel:CreateFontString(nil, "OVERLAY")
+  moreSettings:SetFontObject("GameFontDisableSmall")
+  moreSettings:SetJustifyH("LEFT")
+  moreSettings:SetWidth(240)
+  moreSettings:SetText("BoE, reagent, gold and general settings live on the "
+      .. "\"Filters & Automation\" page under this one.")
+  moreSettings:SetPoint("TOPLEFT", globalProfileCB, "BOTTOMLEFT", 4, -16)
+
+  panel.RefreshValues = function(self)
+    self.RefreshItemList()
+    self.recipientBox:Refresh()
+    self.globalProfileCB:Refresh()
+  end
+
+  panel:SetScript("OnShow", panel.RefreshValues)
+
+  return panel
+end
+
+--[[ FILTERS & AUTOMATION SUBPANEL ]]
+
+local function CreateFiltersPanel()
+  local panel = CreateFrame("Frame", "AutoMailerOptionsFilters", UIParent)
+  panel.name = "Filters & Automation"
+  local refreshers = {}
+
+  local function Track(widget)
+    tinsert(refreshers, widget)
+    return widget
+  end
+
+  local title = panel:CreateFontString(nil, "OVERLAY")
+  title:SetFontObject("GameFontNormalHuge")
+  title:SetText("Filters & Automation")
+  title:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -10)
+
+  -- Bind-on-Equip
+  local boeHeader = CreateHeader(panel, "Bind-on-Equip Items", title, 0, -18, "GameFontNormalLarge")
+
+  local boeCB = Track(CreateCheckbox(panel, "Automatically send BoEs",
+      function() return A.db.SendBOE end,
+      function(value) A.db.SendBOE = value end))
+  boeCB:SetPoint("TOPLEFT", boeHeader, "BOTTOMLEFT", 0, -6)
+
+  local boeLevelCB = Track(CreateCheckbox(panel, "Only BoEs with required level lower than yours",
+      function() return A.db.LimitBoeLevel end,
+      function(value) A.db.LimitBoeLevel = value end))
+  boeLevelCB:SetPoint("TOPLEFT", boeCB, "BOTTOMLEFT", 16, 0)
+
+  local boeRarityCB = Track(CreateCheckbox(panel, "Limit rarity",
+      function() return A.db.limitBoeRarity end,
+      function(value) A.db.limitBoeRarity = value end))
+  boeRarityCB:SetPoint("TOPLEFT", boeLevelCB, "BOTTOMLEFT", 0, 0)
+
+  -- UIDropDownMenuTemplate resolves its own sub-frames through _G by name, so
+  -- unlike every other widget here this one has to keep a global name.
+  local rarityDropdown = CreateFrame("Frame", "AutoMailerRarityLimitDropDown", panel, "UIDropDownMenuTemplate")
+  rarityDropdown:SetPoint("TOPLEFT", boeRarityCB, "BOTTOMLEFT", -8, -4)
+  rarityDropdown.displayMode = "MENU"
+  rarityDropdown.initialize = function(_, level)
+    if not level then return end
+    for _, quality in ipairs({ Enum.ItemQuality.Uncommon, Enum.ItemQuality.Rare, Enum.ItemQuality.Epic }) do
+      local info = UIDropDownMenu_CreateInfo()
+      info.text = RarityText(quality)
+      info.arg1 = quality
+      info.checked = (A.db.boeRarityLimit == quality)
+      info.func = function(_, chosen)
+        A.db.boeRarityLimit = chosen
+        UIDropDownMenu_SetText(rarityDropdown, RarityText(chosen))
+        CloseDropDownMenus()
+      end
+      UIDropDownMenu_AddButton(info, 1)
+    end
+  end
+  rarityDropdown.Refresh = function(self)
+    UIDropDownMenu_SetText(self, RarityText(A.db.boeRarityLimit))
+  end
+  Track(rarityDropdown)
+  panel.rarityDropdown = rarityDropdown
+
+  local boeRecipientHeader = CreateHeader(panel, "BoE Recipient", rarityDropdown, 16, -8)
+
+  local boeRecipientBox = Track(CreateTextBox(panel, 200,
+      function() return A.db.boeRecipient or "" end,
+      function(value) A.db.boeRecipient = value end))
+  boeRecipientBox:SetPoint("TOPLEFT", boeRecipientHeader, "BOTTOMLEFT", 5, 0)
+  panel.boeRecipientBox = boeRecipientBox
+
+  -- Reagents
+  local reagentHeader = CreateHeader(panel, "Crafting Reagents", boeRecipientBox, -5, -20, "GameFontNormalLarge")
+
+  local reagentCB = Track(CreateCheckbox(panel, "Send all Crafting Reagents",
+      function() return A.db.SendReagents end,
+      function(value) A.db.SendReagents = value end))
+  reagentCB:SetPoint("TOPLEFT", reagentHeader, "BOTTOMLEFT", 0, -6)
+
+  -- Gold
+  local goldHeader = CreateHeader(panel, "Gold", reagentCB, 0, -16, "GameFontNormalLarge")
+
+  local goldCB = Track(CreateCheckbox(panel, "Send gold above threshold to Recipient",
+      function() return A.db.sendExcessGold end,
+      function(value) A.db.sendExcessGold = value end))
+  goldCB:SetPoint("TOPLEFT", goldHeader, "BOTTOMLEFT", 0, -6)
+
+  local goldThresholdHeader = CreateHeader(panel, "Gold Threshold", goldCB, 0, -10)
+
+  local goldThresholdBox = Track(CreateTextBox(panel, 100,
+      function() return tostring(A.db.goldThreshold or 50000) end,
+      function(value)
+        local number = tonumber(value)
+        if number then
+          A.db.goldThreshold = number
+        end
+      end, true))
+  goldThresholdBox:SetPoint("TOPLEFT", goldThresholdHeader, "BOTTOMLEFT", 5, 0)
+  panel.goldThresholdBox = goldThresholdBox
+
+  local confirmGoldCB = Track(CreateCheckbox(panel, "Ask before sending gold",
+      function() return A.db.confirmGoldSends end,
+      function(value) A.db.confirmGoldSends = value end))
+  confirmGoldCB:SetPoint("TOPLEFT", goldThresholdBox, "BOTTOMLEFT", -5, -4)
+
+  -- General
+  local generalHeader = CreateHeader(panel, "General", confirmGoldCB, 0, -16, "GameFontNormalLarge")
+
+  local autoSendCB = Track(CreateCheckbox(panel, "Shift-clicking a mailbox starts a send run",
+      function() return AutoMailer.autoSendOnShiftOpen end,
+      function(value) AutoMailer.autoSendOnShiftOpen = value end))
+  autoSendCB:SetPoint("TOPLEFT", generalHeader, "BOTTOMLEFT", 0, -6)
+
+  local debugCB = Track(CreateCheckbox(panel, "Enable debug logging",
+      function() return AutoMailer.debugLogging end,
+      function(value) AutoMailer.debugLogging = value end))
+  debugCB:SetPoint("TOPLEFT", autoSendCB, "BOTTOMLEFT", 0, 0)
+
+  local loginCB = Track(CreateCheckbox(panel, "Display login message",
+      function() return AutoMailer.loginMessage end,
+      function(value) AutoMailer.loginMessage = value end))
+  loginCB:SetPoint("TOPLEFT", debugCB, "BOTTOMLEFT", 0, 0)
+
+  panel.RefreshValues = function()
+    for _, widget in ipairs(refreshers) do
+      widget:Refresh()
+    end
+  end
+
+  panel:SetScript("OnShow", panel.RefreshValues)
+
+  return panel
+end
+
+function A:RefreshOptionsPanels()
+  if A.optionsPanel then
+    A.optionsPanel:RefreshValues()
+  end
+  if A.optionsFiltersPanel then
+    A.optionsFiltersPanel.RefreshValues()
+  end
+end
+
+function A.CreateOptionsMenu()
+  local mainPanel = CreateMainPanel()
+  local filtersPanel = CreateFiltersPanel()
+
+  A.optionsPanel = mainPanel
+  A.optionsFiltersPanel = filtersPanel
+
+  RegisterCategories(mainPanel, { filtersPanel })
 end

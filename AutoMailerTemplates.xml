@@ -1,0 +1,77 @@
+<!--
+  AutoMailer - automatically mail items out of your bags in World of Warcraft.
+  Copyright (C) ChillFajita, RainForDays and the AutoMailer contributors.
+  See ATTRIBUTION.md for the full contributor list.
+
+  This program is free software: you can redistribute it and/or modify it
+  under the terms of version 3 of the GNU General Public License as published
+  by the Free Software Foundation. It is distributed WITHOUT ANY WARRANTY;
+  without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+  PARTICULAR PURPOSE. See the LICENSE file, or
+  <https://www.gnu.org/licenses/gpl-3.0.html>, for the full license text.
+
+  SPDX-License-Identifier: GPL-3.0-only
+-->
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+  <!--
+    One row of the "Items to AutoMail" table. Declared in XML rather than
+    built in Lua because ScrollBox resolves an element template's frame type
+    and default extent through C_XMLUtil.GetTemplateInfo, which only knows
+    about XML-declared templates.
+
+    The row is a Button so it gets a hover highlight and can accept a dragged
+    item. Right-hand widgets anchor to the row's RIGHT edge so the layout
+    survives ScrollBox stretching rows to the scroll target's width.
+  -->
+  <Button name="AutoMailerItemRowTemplate" virtual="true">
+    <Size x="280" y="26"/>
+    <Layers>
+      <Layer level="BACKGROUND">
+        <Texture parentKey="Stripe" setAllPoints="true">
+          <Color r="1" g="1" b="1" a="0.05"/>
+        </Texture>
+      </Layer>
+      <Layer level="OVERLAY">
+        <!-- Anchored in Lua: the Recipient edit box it points at is declared
+             below, and XML anchors resolve in document order. -->
+        <FontString parentKey="RecipientHint" inherits="GameFontDisableSmall" justifyH="LEFT">
+          <Size x="88" y="12"/>
+        </FontString>
+      </Layer>
+    </Layers>
+    <Frames>
+      <Button parentKey="IconButton">
+        <Size x="20" y="20"/>
+        <Anchors>
+          <Anchor point="LEFT" x="4" y="0"/>
+        </Anchors>
+        <NormalTexture parentKey="Icon"/>
+        <HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD"/>
+      </Button>
+      <EditBox parentKey="Name" inherits="InputBoxTemplate" autoFocus="false">
+        <Size x="112" y="20"/>
+        <Anchors>
+          <Anchor point="LEFT" relativeKey="$parent.IconButton" relativePoint="RIGHT" x="10" y="0"/>
+        </Anchors>
+      </EditBox>
+      <EditBox parentKey="Recipient" inherits="InputBoxTemplate" autoFocus="false">
+        <Size x="96" y="20"/>
+        <Anchors>
+          <Anchor point="LEFT" relativeKey="$parent.Name" relativePoint="RIGHT" x="12" y="0"/>
+        </Anchors>
+      </EditBox>
+      <Button parentKey="Delete">
+        <Size x="16" y="16"/>
+        <Anchors>
+          <Anchor point="RIGHT" x="-6" y="0"/>
+        </Anchors>
+        <NormalTexture file="Interface\Buttons\UI-GroupLoot-Pass-Up"/>
+        <PushedTexture file="Interface\Buttons\UI-GroupLoot-Pass-Down"/>
+        <HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD"/>
+      </Button>
+    </Frames>
+    <HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD">
+      <Color r="1" g="1" b="1" a="0.15"/>
+    </HighlightTexture>
+  </Button>
+</Ui>

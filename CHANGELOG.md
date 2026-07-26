@@ -2,6 +2,38 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [5.0] - 2026-07-26
+
+### Changed
+- **Split `AutoMailer.lua` into `Core.lua`, `Profile.lua`, `MailQueue.lua`, and `Send.lua`.** One ~800-line file carrying saved-variable management, the bag scan, and the send state machine is now four files along the seams that already existed: shared utilities/API wrappers, profile/rule storage, queue building, and the mail-send state machine. `AutoMailer.lua` is now just event registration and slash commands. No behavior change; load order is explicit in the TOC.
+- **The soulbound check no longer scans tooltip text.** `A:ItemIsSoulbound` built a hidden `GameTooltip` and string-matched `ITEM_SOULBOUND` against its first four lines, for every occupied bag slot, on every send run - slow, and only correct if the soulbound line happened to land in those first four. Replaced with `C_Item.IsBound`, which answers the same question directly. Warband-bound-until-equipped gear is still treated as mailable, matching the old check's behavior.
+- **Shift-clicking a mailbox open no longer auto-starts a send run by default.** That included mailing gold, before you'd seen anything, off a modifier key that's heavily used for other things. It's now a checkbox on the new "Filters & Automation" page (off by default); the existing shortcut for adding an item to your list (shift-click while the options panel is open) is unaffected.
+- **A run that would send gold now asks for confirmation first**, showing the item/mail counts, recipients, and an approximate gold amount (the exact figure is only known at send time - see the 4.7/4.8 postage notes). Toggle via "Ask before sending gold" on the Filters & Automation page; on by default. Item-only runs are unaffected and still send in one click.
+- **The options panel is now two pages.** "AutoMailer" has just the Recipient field and the item table; BoE, reagent, gold, and general settings (debug logging, login message, the new auto-send and gold-confirmation toggles) moved to a "Filters & Automation" subcategory underneath it, so the crowded single page (already tight before the item table) has room.
+- Options panel widgets no longer create globally-named frames (`recipientBox`, `boeRecipientBox`, and the various `AM*CB` checkboxes previously did). Those names were generic enough that another addon creating the same name could collide with them - whichever loaded second silently won. Every widget the panel creates is unnamed now, except the rarity dropdown, which `UIDropDownMenuTemplate` requires to resolve its own sub-frames through `_G`.
+
+### Added
+- **A Lua test suite for the non-UI logic** (`tests/`), runnable outside the game with a plain Lua interpreter (`lua tests/run_tests.lua`). Covers the legacy-string-to-table migration, rule sanitization, exact-vs-loose item matching, and `BuildMailQueue`'s batching, soulbound/locked/self-recipient skipping, BoE rarity filtering, reagent-bag handling, and excess-gold queuing - the exact area responsible for most of this addon's past regressions (see the 4.4 through 4.8 entries below).
+- **A `LICENSE` file and per-file license notices.** The original AutoMailer is published on CurseForge under GPL-3.0-only; this fork now states that explicitly instead of shipping unlicensed. See `ATTRIBUTION.md` for the full note.
+
+### Fixed
+- `SendMailBatch`'s item-attachment step now re-checks that a bag slot still holds the item that was queued before picking it up. A queue built before a confirmation dialog (or before earlier mails in the same run move items around) could otherwise pick up and mail whatever now happens to occupy that slot.
+
+## [4.9] - 2026-07-26
+
+### Changed
+- **"Items to AutoMail" is now a table instead of a free-text box.** The multiline `Item Name = Recipient` edit box has been replaced with a proper ScrollBox-backed list: one row per rule, showing the item's icon (with its tooltip on hover), its name in quality color, its own recipient field, and a delete button. Rows whose recipient is blank show the default Recipient greyed out in the field, so the fallback is visible instead of having to be remembered.
+- **Rules are stored as structured data.** `A.db.items` moved from one newline-delimited string to a list of `{ itemID, itemName, recipient }` records. Existing text lists are migrated automatically on first load; the migration is one-way, so a profile saved by 4.9 won't be readable by 4.8 and earlier.
+- **Shift-clicking a bag item no longer requires the item box to have focus** — it adds a row whenever the options panel is open.
+
+### Added
+- Items can be dragged from your bags onto the list to add them, or dropped onto an existing row's icon to change what that row matches. **Add Item** adds a blank row for typing a name by hand.
+- Rules added by clicking or dragging an item now match that exact item by itemID, so a rule for Linen Cloth no longer also sweeps up Linen Cloth Bandages. Rules typed by hand (and every rule migrated from a pre-4.9 text list) keep the original loose substring matching, so `Ore` still catches every ore and existing setups behave exactly as they did before. Typing over a row's name converts it back to a loose name rule, which the question-mark icon indicates.
+
+### Fixed
+- The per-character and global profiles could have been handed the same `items` table when both were created from defaults in the same session, leaving them sharing one rule list. Each profile now gets its own defaults.
+- **The repository shipped no license file.** The original addon is published on CurseForge under the GNU General Public License version 3, but this fork never carried that forward, leaving the terms unstated. Added the full `LICENSE` text, per-file notices, and an `X-License` TOC field, all as `GPL-3.0-only` to match what upstream declared.
+
 ## [4.8] - 2026-07-23
 
 ### Added
