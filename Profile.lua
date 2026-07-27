@@ -35,7 +35,7 @@ function A:DefaultProfile()
     SendReagents = false,
     sendExcessGold = false,
     goldThreshold = 50000,
-    confirmGoldSends = true,
+    confirmGoldSends = false,
   }
 end
 
@@ -105,7 +105,7 @@ function A:SanitizeProfile(t)
   if type(t.SendReagents) ~= "boolean" then t.SendReagents = false end
   if type(t.sendExcessGold) ~= "boolean" then t.sendExcessGold = false end
   if type(t.goldThreshold) ~= "number" then t.goldThreshold = 50000 end
-  if type(t.confirmGoldSends) ~= "boolean" then t.confirmGoldSends = true end
+  if type(t.confirmGoldSends) ~= "boolean" then t.confirmGoldSends = false end
 end
 
 -- Points at whichever profile table (per-character AutoMailer or global

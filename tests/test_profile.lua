@@ -57,7 +57,7 @@ Testkit.Test("SanitizeProfile fills in missing/invalid fields with defaults", fu
 
   Testkit.AssertEqual(profile.goldThreshold, 50000)
   Testkit.AssertEqual(profile.SendBOE, false)
-  Testkit.AssertEqual(profile.confirmGoldSends, true)
+  Testkit.AssertEqual(profile.confirmGoldSends, false)
   Testkit.AssertDeepEqual(profile.items, {})
 end)
 

@@ -2,6 +2,11 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [5.0.1] - 2026-07-26
+
+### Changed
+- **"Ask before sending gold" is now off by default.** A run that includes gold sends immediately instead of showing the confirmation popup added in 5.0. The checkbox on the Filters & Automation page still exists for anyone who wants the prompt back.
+
 ## [5.0] - 2026-07-26
 
 ### Changed
