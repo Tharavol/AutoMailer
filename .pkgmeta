@@ -1,0 +1,10 @@
+package-as: AutoMailer
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+ignore:
+  - .github
+  - .luacheckrc
+  - tests

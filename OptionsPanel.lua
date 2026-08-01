@@ -109,7 +109,8 @@ local function CreateItemTable(optionsPanel, anchorTo)
   emptyText:SetWidth(LIST_WIDTH - 30)
   emptyText:SetFontObject("GameFontDisableSmall")
   emptyText:SetJustifyH("CENTER")
-  emptyText:SetText("No items yet.\n\nShift-click an item in your bags, drag one\nonto this list, or press Add Item below.")
+  emptyText:SetText("No items yet.\n\nShift-click an item in your bags, drag one\n"
+      .. "onto this list, or press Add Item below.")
 
   local RefreshList
 
