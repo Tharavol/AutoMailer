@@ -33,7 +33,9 @@ local function BuildConfirmationText(summary)
   end
 
   if summary.goldCopper > 0 then
-    tinsert(lines, string.format("Roughly %s to %s.\n(The exact amount is worked out at send time so postage lands you on your threshold.)",
+    tinsert(lines, string.format(
+        "Roughly %s to %s.\n" ..
+        "(The exact amount is worked out at send time so postage lands you on your threshold.)",
         GetCoinTextureString(summary.goldCopper), summary.goldRecipient))
   end
 

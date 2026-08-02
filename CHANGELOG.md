@@ -2,6 +2,16 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [5.0.2] - 2026-08-01
+
+Packaging and tooling only — no functional changes.
+
+### Changed
+- **Releases are now built by [BigWigsMods/packager](https://github.com/BigWigsMods/packager).** The zip now contains only what the addon needs; development files (`.github/`, `.luacheckrc`, `.pkgmeta`, `tests/`) no longer ship.
+- **The version in the TOC now comes from the release tag** rather than being maintained by hand, so it can no longer disagree with the release it was published under. Versions now carry a leading `v`.
+- Added GitHub Actions running luacheck and the test suite on every push and pull request.
+- Wrapped two long lines in `Send.lua` and `OptionsPanel.lua` to satisfy the line-length limit. The displayed strings are unchanged.
+
 ## [5.0.1] - 2026-07-26
 
 ### Changed

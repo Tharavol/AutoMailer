@@ -2,7 +2,7 @@
 ## Title: AutoMailer
 ## Author: RainForDays, Tharavol, MAI-Code-1-Flash, Claude
 ## Notes: Automatically mail items.
-## Version: 5.0.1
+## Version: @project-version@
 ## X-License: GPL-3.0-only
 ## DefaultState: enabled
 ## SavedVariablesPerCharacter: AutoMailer
