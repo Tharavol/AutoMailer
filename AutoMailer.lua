@@ -19,6 +19,8 @@
 
 local _, A = ...
 
+local L = A.L
+
 local E = CreateFrame("Frame")
 E:RegisterEvent("ADDON_LOADED")
 E:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -52,7 +54,9 @@ end
 
 function E:PLAYER_ENTERING_WORLD(login, reloadUI)
   if (login or reloadUI) and AutoMailer.loginMessage and A.loaded then
-    print(A.addonName .. "loaded")
+    -- No "v" prefix: the TOC version comes from the release tag, which already
+    -- carries one (same reason as Send.lua's run banner).
+    print(A.addonName .. string.format(L["%s loaded"], A:GetVersion()))
   end
 end
 
@@ -98,7 +102,7 @@ function E:MAIL_CLOSED()
   A:Log("MAIL_CLOSED")
   A:HideMailTriggerButton()
   if A.sendingMail then
-    A:Print("Mail frame closed while AutoMailer was still sending; stopping.")
+    A:Print(L["Mail frame closed while AutoMailer was still sending; stopping."])
   end
   A:ResetMailSendState()
 end
@@ -119,24 +123,26 @@ local function PrintSentSummary()
   local printedAnything = false
 
   for recipient, items in pairs(A.itemsSent) do
-    local line = ""
+    local parts = {}
     for itemName, count in pairs(items) do
-      if #line > 0 then
-        line = line .. ", " .. itemName .. "x" .. count
-      else
-        line = itemName .. "x" .. count
-      end
+      tinsert(parts, string.format(L["%s x%d"], itemName, count))
     end
+    -- Left as plain punctuation rather than a translation key: a key whose
+    -- English value is ", " would fall back to the literal string ", " as its
+    -- own name, which is exactly what the key-is-the-text scheme can't
+    -- express. If a locale needs a different list separator, that is the point
+    -- to introduce a real key for it.
+    local line = table.concat(parts, ", ")
 
     if #line > 0 then
-      A:Print("Items sent to " .. recipient)
+      A:Print(string.format(L["Items sent to %s"], recipient))
       print(line)
       printedAnything = true
     end
   end
 
   if not printedAnything then
-    A:Print("Nothing sent this session.")
+    A:Print(L["Nothing sent this session."])
   end
 end
 
@@ -158,7 +164,10 @@ function A:SlashCommand(args)
     PrintSentSummary()
   elseif command == "debug" then
     AutoMailer.debugLogging = not AutoMailer.debugLogging
-    A:Print("Debug logging " .. (AutoMailer.debugLogging and "enabled" or "disabled") .. ".")
+    -- Two whole sentences rather than a stem plus an "enabled"/"disabled"
+    -- fragment: languages that inflect the adjective can't translate the
+    -- fragment without seeing the rest of the sentence.
+    A:Print(AutoMailer.debugLogging and L["Debug logging enabled."] or L["Debug logging disabled."])
   else
     OpenOptions()
   end

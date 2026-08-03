@@ -2,6 +2,27 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [5.2] - 2026-08-03
+
+### Fixed
+- **Rules are now applied to the Reagent Bag whether or not "Send all Crafting Reagents" is on** ([#28](https://github.com/Tharavol/AutoMailer/issues/28)). That bag was only scanned when the option was enabled, so an explicit rule naming an item the game files in there never matched — and retail auto-sorts cloth, ore and herbs into it, so this hit exactly the items people most want rules for. It failed silently, too: a bag that is never scanned produces nothing to log. The option now controls only whether *unmatched* contents get swept up, which is what it reads as. Bind-on-Equip handling still doesn't apply to that bag.
+- **An exact item rule now always beats a name rule that also matches** ([#9](https://github.com/Tharavol/AutoMailer/issues/9)). Rules were checked in storage order, so precedence depended on the order they happened to be added: a `Cloth` name rule added before an exact Linen Cloth rule won, and deleting and re-adding either one silently flipped where Linen Cloth went. Nothing showed that ordering or let you change it, since the two kinds live in separate tables. Specific now beats general, which is what the two-table layout already implies.
+- **A send run can start when no default Recipient is set but your rules name their own** ([#23](https://github.com/Tharavol/AutoMailer/issues/23)). The check that a profile was configured predated per-rule recipients and looked only at the Recipient and BoE Recipient boxes, so a perfectly valid rules-only setup was refused before the queue was ever built. Gold has no per-rule equivalent, so a run in that state now says the excess gold wasn't sent instead of dropping it silently.
+- **A send run can no longer wedge if the server never answers** ([#10](https://github.com/Tharavol/AutoMailer/issues/10)). Each mail waited on `MAIL_SUCCESS` or `MAIL_FAILED` with no timeout; if neither arrived, the run stayed "in progress" forever and every later click on the Send Mail button said so, until you closed the mailbox. A 20-second backstop now ends the run and says why. It's deliberately generous — it exists to catch a stuck run, not to time out a slow one.
+- The item list from `/am list` now reads `Linen Cloth x1` rather than `Linen Clothx1` ([#29](https://github.com/Tharavol/AutoMailer/issues/29)).
+
+### Added
+- **Every displayed string now goes through a translation table** ([#22](https://github.com/Tharavol/AutoMailer/issues/22)), in a new `Locale.lua` that loads first. The key is the English text, so there's no English table to keep in sync and an untranslated string shows readable English rather than a blank or an error. Interpolated sentences were converted from concatenation to format strings so word order can be translated too. Adding a language is now a single file calling `A:RegisterLocale`; only the table matching the running client is applied. Debug output is deliberately left untranslated, so it reads the same in any bug report.
+- **Tab moves between a rule's name and recipient fields**, shift-tab back ([#25](https://github.com/Tharavol/AutoMailer/issues/25)). Adding a name rule no longer means reaching for the mouse between the two boxes. Focus follows the rule even when committing the name converts it to an item rule and moves it to the other table.
+- **The login message now includes the version** ([#24](https://github.com/Tharavol/AutoMailer/issues/24)).
+- **Debug logging now accounts for every item a run passed over**, grouped by reason with a sample of the items involved, plus each batch's recipient, subject and contents ([#27](https://github.com/Tharavol/AutoMailer/issues/27)). A run that queued nothing previously reported a single line and no reason — the situation where the log matters most and said least. Reasons are listed in a stable order so two runs over the same bags can be compared, and none of it is collected when debug logging is off.
+
+### Internal
+- The Reagent Bag's two differences from an ordinary bag — whether items need to match a rule, and whether BoE handling applies — are now separate flags. They had been one flag, which also conflated them with a third thing: whether the bag was scanned at all. That conflation was [#28](https://github.com/Tharavol/AutoMailer/issues/28).
+- `A:GetAutoMailEntry` matches in two passes rather than one, and `A:HasRuleRecipient` answers whether any rule carries its own recipient.
+- **The send state machine has its first tests** (`tests/test_send.lua`), covering the watchdog by faking `C_Timer` so stale-timer cases are assertions rather than twenty-second waits. The rest of `Send.lua` still reaches for the mail-form globals directly and can't be driven offline yet ([#15](https://github.com/Tharavol/AutoMailer/issues/15)).
+- The suite is up from 36 tests to 69.
+
 ## [5.1] - 2026-08-02
 
 ### Changed

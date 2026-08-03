@@ -10,6 +10,8 @@ local Testkit = require("tests.testkit")
 local function NewFakeAddon(bagContents, opts)
   opts = opts or {}
   local A = Testkit.NewAddonTable()
+  -- Same order as the TOC: MailQueue captures A.L at file scope.
+  Testkit.LoadModule("Locale.lua", A)
   Testkit.LoadModule("Core.lua", A)
   Testkit.LoadModule("Profile.lua", A)
   Testkit.LoadModule("MailQueue.lua", A)
@@ -56,6 +58,19 @@ local function NewFakeAddon(bagContents, opts)
 
   function A:IsCurrentCharacter(recipient)
     return recipient == (opts.currentCharacter or "CurrentToon")
+  end
+
+  -- A:IsDebugLogging reads this global, and the run summary only collects skip
+  -- reasons when it is on.
+  _G.AutoMailer = { debugLogging = opts.debugLogging or false }
+
+  A.logged = {}
+  function A:Log(...) tinsert(A.logged, table.concat({ ... }, " ")) end
+  function A:LoggedContains(text)
+    for _, line in ipairs(A.logged) do
+      if line:find(text, 1, true) then return true end
+    end
+    return false
   end
 
   _G.GetMoney = function() return opts.money or 0 end
@@ -192,6 +207,35 @@ Testkit.Test("BuildMailQueue queues a placeholder excess-gold batch above the th
   Testkit.AssertEqual(itemCount, 1, "the gold batch counts toward the total for the 'nothing to send' check")
 end)
 
+-- Gold has no per-rule equivalent, so a rules-only profile - which can now
+-- start a run - has nothing to send gold to. Dropping it silently reads as
+-- the gold option being ignored.
+Testkit.Test("BuildMailQueue reports excess gold it has no recipient for", function()
+  local A = NewFakeAddon({}, { money = 600000 })
+  A.db.sendExcessGold = true
+  A.db.goldThreshold = 5
+
+  local printed = {}
+  function A:Print(...) tinsert(printed, table.concat({ ... }, " ")) end
+
+  local batches = A:BuildMailQueue("", "")
+  Testkit.AssertEqual(#batches, 0)
+  Testkit.AssertEqual(#printed, 1, "the skipped gold must be reported, not dropped silently")
+  Testkit.AssertTrue(printed[1]:find("Excess gold not sent", 1, true) ~= nil)
+end)
+
+Testkit.Test("BuildMailQueue stays quiet about gold it has no recipient for when there is none to send", function()
+  local A = NewFakeAddon({}, { money = 10000 })
+  A.db.sendExcessGold = true
+  A.db.goldThreshold = 5
+
+  local printed = {}
+  function A:Print(...) tinsert(printed, table.concat({ ... }, " ")) end
+
+  A:BuildMailQueue("", "")
+  Testkit.AssertEqual(#printed, 0, "below the threshold there is nothing to warn about")
+end)
+
 Testkit.Test("BuildMailQueue does not queue gold below the threshold", function()
   local A = NewFakeAddon({}, { money = 10000 }) -- 1g
   A.db.sendExcessGold = true
@@ -256,6 +300,70 @@ Testkit.Test("BuildMailQueue lets a reagent-bag rule's own recipient win over th
   Testkit.AssertEqual(batches[1].recipient, "ReagentAlt")
 end)
 
+--[[
+  The reagent bag used to be scanned only when SendReagents was on, so an
+  explicit rule for an item the game files in there never matched. Retail
+  auto-sorts cloth, ore and herbs into that bag, so this hit exactly the items
+  people most want rules for - and silently, since an unscanned bag produces
+  nothing to log.
+]]
+Testkit.Test("BuildMailQueue applies item rules in the reagent bag with SendReagents off", function()
+  local A = NewFakeAddon({
+    [5] = { { itemLink = "item:2589", locked = false, soulbound = false } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+  })
+  A.db.SendReagents = false
+  tinsert(A:GetAutoMailEntries(), { itemID = 2589, itemName = "Linen Cloth", recipient = "Bankalt" })
+
+  local batches, itemCount = A:BuildMailQueue("DefaultRecipient", "")
+  Testkit.AssertEqual(itemCount, 1, "a rule must match wherever the item lives")
+  Testkit.AssertEqual(batches[1].recipient, "Bankalt")
+end)
+
+Testkit.Test("BuildMailQueue applies name rules in the reagent bag with SendReagents off", function()
+  local A = NewFakeAddon({
+    [5] = { { itemLink = "item:2589", locked = false, soulbound = false } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+  })
+  A.db.SendReagents = false
+  tinsert(A:GetAutoMailEntries(), { itemName = "Cloth", recipient = "Bankalt" })
+
+  local batches, itemCount = A:BuildMailQueue("DefaultRecipient", "")
+  Testkit.AssertEqual(itemCount, 1)
+  Testkit.AssertEqual(batches[1].recipient, "Bankalt")
+end)
+
+-- The other half of the fix: scanning the bag must not start sweeping it.
+-- "Send all Crafting Reagents" is still what mails unmatched contents.
+Testkit.Test("BuildMailQueue does not sweep unmatched reagent-bag items with SendReagents off", function()
+  local A = NewFakeAddon({
+    [5] = { { itemLink = "item:reagent", locked = false, soulbound = false } },
+  }, {
+    itemInfoByLink = { ["item:reagent"] = { name = "Some Reagent", itemID = 99, bindType = 0 } },
+  })
+  A.db.SendReagents = false
+
+  local _, itemCount = A:BuildMailQueue("DefaultRecipient", "")
+  Testkit.AssertEqual(itemCount, 0, "an item matching no rule must still need the option to be mailed")
+end)
+
+-- The reagent bag can only hold tradeskill items, so BoE handling has never
+-- applied to it. Scanning it unconditionally must not change that.
+Testkit.Test("BuildMailQueue does not apply BoE handling to the reagent bag with SendReagents off", function()
+  local A = NewFakeAddon({
+    [5] = { { itemLink = "item:epicboe", locked = false, soulbound = false } },
+  }, {
+    itemInfoByLink = { ["item:epicboe"] = { name = "Epic BoE", itemID = 5, bindType = 2, rarity = 4 } },
+  })
+  A.db.SendReagents = false
+  A.db.SendBOE = true
+
+  local _, itemCount = A:BuildMailQueue("DefaultRecipient", "BoeAlt")
+  Testkit.AssertEqual(itemCount, 0, "BoE handling must stay out of the reagent bag")
+end)
+
 Testkit.Test("BuildMailQueue does not apply BoE handling to the reagent bag", function()
   local A = NewFakeAddon({
     [5] = { { itemLink = "item:epicboe", locked = false, soulbound = false } },
@@ -270,6 +378,135 @@ Testkit.Test("BuildMailQueue does not apply BoE handling to the reagent bag", fu
   local batches = A:BuildMailQueue("DefaultRecipient", "BoeAlt")
   Testkit.AssertEqual(#batches, 1)
   Testkit.AssertEqual(batches[1].recipient, "DefaultRecipient")
+end)
+
+--[[
+  The per-run debug account. A run that queues nothing used to log one line
+  and no reason, which is exactly when the log matters most.
+]]
+
+Testkit.Test("LogQueueDetail records the recipient, subject and contents of each batch", function()
+  local A = NewFakeAddon({
+    [0] = { { itemLink = "item:2589", locked = false, soulbound = false } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+    debugLogging = true,
+  })
+  tinsert(A:GetAutoMailEntries(), { itemID = 2589, itemName = "Linen Cloth", recipient = "Bankalt" })
+
+  A:BuildMailQueue("DefaultRecipient", "")
+
+  Testkit.AssertTrue(A:LoggedContains("Batch 1 to Bankalt"), "the batch's recipient should be logged")
+  Testkit.AssertTrue(A:LoggedContains("subject=Linen Cloth"), "the mail subject should be logged")
+  Testkit.AssertTrue(A:LoggedContains("[Linen Cloth]"), "the batch contents should be logged by name")
+end)
+
+Testkit.Test("LogQueueDetail describes the gold batch rather than treating it as items", function()
+  local A = NewFakeAddon({}, { money = 600000, debugLogging = true })
+  A.db.sendExcessGold = true
+  A.db.goldThreshold = 5
+
+  A:BuildMailQueue("DefaultRecipient", "")
+
+  Testkit.AssertTrue(A:LoggedContains("excess gold, amount resolved at send time"),
+      "the gold batch has no items and no subject yet, so it needs its own line")
+end)
+
+Testkit.Test("BuildMailQueue accounts for soulbound and locked items it passed over", function()
+  local A = NewFakeAddon({
+    [0] = {
+      { itemLink = "item:1", locked = true, soulbound = false },
+      { itemLink = "item:2", locked = false, soulbound = true },
+    },
+  }, {
+    itemInfoByLink = {
+      ["item:1"] = { name = "Locked Item", itemID = 1, bindType = 0 },
+      ["item:2"] = { name = "Soulbound Item", itemID = 2, bindType = 0 },
+    },
+    debugLogging = true,
+  })
+  tinsert(A:GetAutoMailEntries(), { itemName = "Item", recipient = "Bankalt" })
+
+  A:BuildMailQueue("DefaultRecipient", "")
+
+  Testkit.AssertTrue(A:LoggedContains("soulbound"), "a soulbound skip must be accounted for")
+  Testkit.AssertTrue(A:LoggedContains("locked by the client"), "a locked skip must be accounted for")
+end)
+
+-- The case that produced the original "0 batch(es), no reason given" report.
+Testkit.Test("BuildMailQueue says so when nothing matched a rule", function()
+  local A = NewFakeAddon({
+    [0] = { { itemLink = "item:2589", locked = false, soulbound = false } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+    debugLogging = true,
+  })
+
+  local _, itemCount = A:BuildMailQueue("DefaultRecipient", "")
+
+  Testkit.AssertEqual(itemCount, 0)
+  Testkit.AssertTrue(A:LoggedContains("matched no rule"), "an empty run must say why it is empty")
+  -- Samples record the item link, not the name: in chat a link renders as a
+  -- clickable, quality-coloured [Linen Cloth], which is what the rest of the
+  -- run's logging already does.
+  Testkit.AssertTrue(A:LoggedContains("item:2589"), "and identify what it passed over")
+end)
+
+Testkit.Test("BuildMailQueue accounts for a rule pointing at the current character", function()
+  local A = NewFakeAddon({
+    [0] = { { itemLink = "item:2589", locked = false, soulbound = false } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+    currentCharacter = "Bankalt",
+    debugLogging = true,
+  })
+  tinsert(A:GetAutoMailEntries(), { itemID = 2589, itemName = "Linen Cloth", recipient = "Bankalt" })
+
+  A:BuildMailQueue("DefaultRecipient", "")
+  Testkit.AssertTrue(A:LoggedContains("recipient is the currently logged in character"))
+end)
+
+-- A rule that matched but names nobody, with no default to fall back on, is
+-- reachable now that a run can start on rule recipients alone.
+Testkit.Test("BuildMailQueue accounts for a matched rule with no recipient anywhere", function()
+  local A = NewFakeAddon({
+    [0] = { { itemLink = "item:2589", locked = false, soulbound = false } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+    debugLogging = true,
+  })
+  tinsert(A:GetAutoMailEntries(), { itemID = 2589, itemName = "Linen Cloth", recipient = "" })
+
+  A:BuildMailQueue("", "")
+  Testkit.AssertTrue(A:LoggedContains("rule matched but has no recipient"))
+end)
+
+-- A full bag of unmatched items must not bury the rest of the log.
+Testkit.Test("BuildMailQueue samples rather than lists every skipped item", function()
+  local bag, itemInfoByLink = {}, {}
+  for i = 1, 12 do
+    local link = "item:" .. i
+    bag[i] = { itemLink = link, locked = false, soulbound = false }
+    itemInfoByLink[link] = { name = "Thing " .. i, itemID = i, bindType = 0 }
+  end
+
+  local A = NewFakeAddon({ [0] = bag }, { itemInfoByLink = itemInfoByLink, debugLogging = true })
+  A:BuildMailQueue("DefaultRecipient", "")
+
+  Testkit.AssertTrue(A:LoggedContains("Skipped 12 item(s)"), "the full count is still reported")
+  Testkit.AssertTrue(A:LoggedContains("(4 more)"), "but only the first 8 are named")
+end)
+
+Testkit.Test("BuildMailQueue collects no skip reasons when debug logging is off", function()
+  local A = NewFakeAddon({
+    [0] = { { itemLink = "item:2589", locked = false, soulbound = false } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+    debugLogging = false,
+  })
+
+  A:BuildMailQueue("DefaultRecipient", "")
+  Testkit.AssertEqual(#A.logged, 0, "the accounting shouldn't run when nobody will read it")
 end)
 
 --[[ Excess-gold arithmetic ]]
