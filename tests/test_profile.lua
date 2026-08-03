@@ -166,6 +166,40 @@ Testkit.Test("GetAutoMailEntry: an item rule matches with no item name available
       "with no name there is nothing for a name rule to match against")
 end)
 
+--[[
+  Answers "is this profile configured enough to run?" for a setup with no
+  default Recipient. The send guard used to look only at the two recipient
+  boxes, so a profile where every rule named its own recipient was refused
+  before the queue was ever built.
+]]
+Testkit.Test("HasRuleRecipient finds a rule carrying its own recipient", function()
+  local A = NewA()
+  A.db = { items = {
+    { itemID = 2589, itemName = "Linen Cloth", recipient = "" },
+    { itemName = "Ore", recipient = "Bankalt" },
+  } }
+
+  Testkit.AssertEqual(A:HasRuleRecipient(), true)
+end)
+
+Testkit.Test("HasRuleRecipient is false when no rule names a recipient", function()
+  local A = NewA()
+  A.db = { items = {
+    { itemID = 2589, itemName = "Linen Cloth", recipient = "" },
+    { itemName = "Ore", recipient = "" },
+  } }
+
+  Testkit.AssertEqual(A:HasRuleRecipient(), false,
+      "rules that all fall back to the default can't run without one")
+end)
+
+Testkit.Test("HasRuleRecipient is false for an empty rule list", function()
+  local A = NewA()
+  A.db = { items = {} }
+
+  Testkit.AssertEqual(A:HasRuleRecipient(), false)
+end)
+
 Testkit.Test("SplitAutoMailEntries separates itemID rules from name rules", function()
   local A = NewA()
   local linen = { itemID = 2589, itemName = "Linen Cloth", recipient = "" }
