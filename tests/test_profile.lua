@@ -98,6 +98,21 @@ Testkit.Test("GetAutoMailEntry: a name-only rule matches loosely, by substring",
       "a loose 'Ore' rule should not match unrelated items")
 end)
 
+-- Matching used to run in both directions, so a rule matched any item whose
+-- name was a substring of the rule text: "Heavy Silken Thread" also mailed
+-- Silken Thread, and with no length floor, an item named "Thread" too.
+Testkit.Test("GetAutoMailEntry: a name rule does not match items whose names it contains", function()
+  local A = NewA()
+  A.db = { items = { { itemName = "Heavy Silken Thread", recipient = "" } } }
+
+  Testkit.AssertTrue(A:GetAutoMailEntry("Heavy Silken Thread", 4291) ~= nil,
+      "the rule must still match the item it names")
+  for _, name in ipairs({ "Silken Thread", "Thread", "Silken", "Heavy", "Silk", "n" }) do
+    Testkit.AssertTrue(A:GetAutoMailEntry(name, 1) == nil,
+        "'" .. name .. "' is not what the rule asked for and must not match")
+  end
+end)
+
 Testkit.Test("SplitAutoMailEntries separates itemID rules from name rules", function()
   local A = NewA()
   local linen = { itemID = 2589, itemName = "Linen Cloth", recipient = "" }
