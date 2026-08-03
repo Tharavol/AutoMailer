@@ -231,6 +231,31 @@ local function CreateItemTable(optionsPanel, anchorTo)
     UpdateRecipientHint(row)
   end
 
+  --[[
+    Moves focus to another field of the same rule, for tabbing between the
+    name and recipient boxes.
+
+    Deferred a frame, and located by entry rather than by frame, because
+    leaving a field commits it - and committing a name can rebuild both lists
+    (a name the client resolves to a real item turns that rule into an item
+    rule and moves it to the other table). The row frame is recycled by that
+    rebuild, so a reference captured before it can easily be pointing at a
+    different rule by the time focus lands. Same reason the "Add Name Rule"
+    button defers its SetFocus.
+  ]]
+  local function FocusEntryField(entry, key)
+    if not entry then return end
+    C_Timer.After(0, function()
+      for _, list in ipairs({ itemList, nameList }) do
+        local frame = list.scrollBox.FindFrame and list.scrollBox:FindFrame(entry)
+        if frame and frame[key] then
+          frame[key]:SetFocus()
+          return
+        end
+      end
+    end)
+  end
+
   -- Scripts are wired once per frame, not once per rule: ScrollBox recycles
   -- row frames, so handlers read row.entry at call time rather than closing
   -- over whichever rule the row happened to show when it was created.
@@ -243,8 +268,24 @@ local function CreateItemTable(optionsPanel, anchorTo)
       self:ClearFocus()
     end)
     row.Name:SetScript("OnEditFocusLost", function() CommitName(row) end)
+    -- Tab goes to this rule's recipient; shift-tab just leaves the field,
+    -- since nothing precedes the name in a row.
+    row.Name:SetScript("OnTabPressed", function(self)
+      local entry = row.entry
+      self:ClearFocus()
+      if not IsShiftKeyDown() then
+        FocusEntryField(entry, "Recipient")
+      end
+    end)
 
     row.Recipient:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    row.Recipient:SetScript("OnTabPressed", function(self)
+      local entry = row.entry
+      self:ClearFocus()
+      if IsShiftKeyDown() then
+        FocusEntryField(entry, "Name")
+      end
+    end)
     row.Recipient:SetScript("OnEscapePressed", function(self)
       self:SetText(row.entry and row.entry.recipient or "")
       self:ClearFocus()
