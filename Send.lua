@@ -183,7 +183,11 @@ function A:StartMailSend()
   local recipient = A.db.recipient or ""
   local boeRecipient = A.db.boeRecipient or ""
 
-  if #recipient == 0 and #boeRecipient == 0 then
+  -- Rules can name their own recipient, so a blank default is not on its own
+  -- an unconfigured profile. This guard used to check only the two boxes on
+  -- the panels and refuse to build the queue, which meant a perfectly valid
+  -- rules-only setup never got the chance to match anything.
+  if #recipient == 0 and #boeRecipient == 0 and not A:HasRuleRecipient() then
     A:Print(L["No recipient configured."])
     return
   end

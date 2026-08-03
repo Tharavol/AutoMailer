@@ -169,6 +169,23 @@ function A:SplitAutoMailEntries()
   return exact, loose
 end
 
+-- Whether any rule carries its own recipient, and so whether a run could
+-- produce mail even with no default Recipient set.
+--
+-- Exists because "is this profile configured enough to run?" used to be
+-- answered by looking only at the default and BoE recipients, which predates
+-- per-rule recipients: a profile where every rule names its own recipient has
+-- everything it needs, but the run was refused before the queue was ever
+-- built.
+function A:HasRuleRecipient()
+  for _, entry in ipairs(A:GetAutoMailEntries()) do
+    if type(entry.recipient) == "string" and entry.recipient ~= "" then
+      return true
+    end
+  end
+  return false
+end
+
 -- Whether some other rule already matches on this name, so the options table
 -- can reject a duplicate name rule. Comparison is case-insensitive because
 -- A:GetAutoMailEntry matches that way too.

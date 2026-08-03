@@ -68,11 +68,21 @@ function A:BuildMailQueue(recipient, boeRecipient)
   end
 
   -- One pass over a single bag. The Reagent Bag differs from the ordinary
-  -- bags in exactly two ways, both of them captured by mailEverything:
-  -- nothing in it has to match a rule to be mailed, and BoE handling doesn't
-  -- apply to it. Keeping that difference as a flag rather than as a second
-  -- copy of this loop is deliberate - the two had already drifted apart.
-  local function scanBag(bag, mailEverything)
+  -- bags in two ways, and they are now separate flags because they turned out
+  -- to be independent questions:
+  --
+  --   mailEverything - nothing in the bag has to match a rule to be mailed.
+  --                    This is the "Send all Crafting Reagents" option.
+  --   boeApplies     - whether BoE handling considers this bag at all. Always
+  --                    off for the Reagent Bag, which can only hold
+  --                    tradeskill items.
+  --
+  -- These used to be one flag, which conflated them with a third thing: the
+  -- Reagent Bag was only scanned when the option was on, so a rule naming an
+  -- item that lives there never matched unless you also opted into sweeping
+  -- the whole bag. Keeping this as one loop rather than a second copy is
+  -- still deliberate - the two had already drifted apart once.
+  local function scanBag(bag, mailEverything, boeApplies)
     local slotCount = A:GetContainerNumSlots(bag)
     for slot = 1, slotCount do
       local _, _, locked, _, _, _, itemLink = A:GetContainerItemInfo(bag, slot)
@@ -105,7 +115,7 @@ function A:BuildMailQueue(recipient, boeRecipient)
         elseif mailEverything then
           targetRecipient = recipient
 
-        elseif A:AutomailBoe(bindType) then
+        elseif boeApplies and A:AutomailBoe(bindType) then
           local rarityOk = (not A.db.limitBoeRarity) or rarity <= A.db.boeRarityLimit
           local levelOk = (not A.db.LimitBoeLevel) or itemMinLevel < A:GetPlayerLevel()
           if rarityOk and levelOk then
@@ -121,17 +131,22 @@ function A:BuildMailQueue(recipient, boeRecipient)
   end
 
   for bag = 0, NUM_BAG_SLOTS do
-    scanBag(bag, false)
+    scanBag(bag, false, true)
   end
 
   -- The Reagent Bag (bag 5) is a dedicated container the game auto-sorts
   -- crafting materials into. Rather than trying to identify "is this a
   -- reagent" via item classification (which proved unreliable - GetItemInfo
   -- fields can be uncached, and classID/type schemes shift between
-  -- expansions), just mail out anything non-soulbound sitting in that bag.
-  if A.db.SendReagents then
-    scanBag(REAGENTBAG_CONTAINER or 5, true)
-  end
+  -- expansions), the SendReagents option just mails out anything non-soulbound
+  -- sitting in that bag.
+  --
+  -- Scanned unconditionally, though. The option controls whether everything in
+  -- there is swept up, not whether the bag is looked at: because the game files
+  -- cloth, ore and herbs in here automatically, gating the scan on the option
+  -- meant an explicit rule for exactly those items silently never matched - and
+  -- silently, since an unscanned bag produces nothing to log either.
+  scanBag(REAGENTBAG_CONTAINER or 5, A.db.SendReagents, false)
 
   local recipients = {}
   for targetRecipient in pairs(queuedByRecipient) do
@@ -163,9 +178,19 @@ function A:BuildMailQueue(recipient, boeRecipient)
     -- (SendMailBatch), using GetMoney() at that point - which by then
     -- already reflects every other mail's real postage - minus this mail's
     -- own (zero-item) postage queried fresh in that moment.
-    if A:IsCurrentCharacter(goldRecipient) then
+    if #goldRecipient == 0 then
+      -- Gold has no per-rule equivalent: rules attach recipients to items, and
+      -- gold isn't an item. A run can now start on rule recipients alone, so
+      -- this is reachable with the gold option enabled and nothing to send it
+      -- to - and dropping it silently reads as the option being ignored.
+      -- Only worth saying when there was actually gold to send.
+      if A:HasExcessGold(A:GetMoney(), thresholdCopper) then
+        A:Print(L["Excess gold not sent: set a Recipient or BoE Recipient. "
+            .. "A rule's own recipient only applies to items."])
+      end
+    elseif A:IsCurrentCharacter(goldRecipient) then
       A:Log("Skipping excess gold - recipient", goldRecipient, "is the currently logged in character")
-    elseif A:HasExcessGold(A:GetMoney(), thresholdCopper) and goldRecipient and #goldRecipient > 0 then
+    elseif A:HasExcessGold(A:GetMoney(), thresholdCopper) then
       A:Log("Queuing excess gold batch (amount computed at send time): threshold=", A.db.goldThreshold,
           "recipient=", goldRecipient)
       tinsert(batches, { recipient = goldRecipient, items = {}, goldThresholdCopper = thresholdCopper })
