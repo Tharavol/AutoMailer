@@ -75,6 +75,39 @@ Testkit.Test("InitializeSavedVariables gives per-character and global profiles i
   _G.AutoMailer, _G.AutoMailerGlobal = nil, nil
 end)
 
+-- The type-repair pass restated each meta default by hand and had drifted from
+-- DefaultMeta: a wrong-typed useGlobalProfile repaired to false while a fresh
+-- install got true, so a corrupted value quietly moved the character onto the
+-- per-character profile instead of the global one it had been using.
+Testkit.Test("InitializeSavedVariables repairs a wrong-typed meta pref to its stated default", function()
+  local A = NewA()
+  _G.AutoMailer = { useGlobalProfile = "yes", loginMessage = 0 }
+  _G.AutoMailerGlobal = {}
+
+  A:InitializeSavedVariables()
+
+  local defaults = A:DefaultMeta()
+  Testkit.AssertEqual(AutoMailer.useGlobalProfile, defaults.useGlobalProfile,
+      "repair and fresh-install defaults have to agree")
+  Testkit.AssertEqual(AutoMailer.loginMessage, defaults.loginMessage)
+
+  _G.AutoMailer, _G.AutoMailerGlobal = nil, nil
+end)
+
+Testkit.Test("InitializeSavedVariables leaves a valid meta pref alone", function()
+  local A = NewA()
+  _G.AutoMailer = { useGlobalProfile = false, debugLogging = true }
+  _G.AutoMailerGlobal = {}
+
+  A:InitializeSavedVariables()
+
+  Testkit.AssertEqual(AutoMailer.useGlobalProfile, false,
+      "repairing must not override a deliberate setting")
+  Testkit.AssertEqual(AutoMailer.debugLogging, true)
+
+  _G.AutoMailer, _G.AutoMailerGlobal = nil, nil
+end)
+
 Testkit.Test("GetAutoMailEntry: an itemID rule matches only that exact item", function()
   local A = NewA()
   A.db = { items = { { itemID = 2589, itemName = "Linen Cloth", recipient = "" } } }
