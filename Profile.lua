@@ -238,8 +238,15 @@ end
 --     nothing else, so a rule for Linen Cloth doesn't also sweep up Linen
 --     Cloth Bandages.
 --   * itemID nil (a name rule, or one migrated from the pre-4.9 text list) -
---     keeps the original loose substring matching, so "Ore" still catches
---     every ore and existing setups behave exactly as they did before.
+--     matches any item whose name contains the rule's text, so "Ore" still
+--     catches every ore and existing setups behave as they did before.
+--
+-- Matching is deliberately one-directional: the rule's text has to appear in
+-- the item's name, not the other way round. It used to test both directions,
+-- which meant a rule matched any item whose name was a substring of the rule -
+-- a rule for "Heavy Silken Thread" also mailed Silken Thread, and with no
+-- minimum length, an item named "Thread" too. Breadth is what the containment
+-- test above is for; the reverse only ever mailed things nobody asked for.
 function A:GetAutoMailEntry(itemName, itemID)
   local itemLower = itemName and itemName:lower() or nil
   for _, entry in ipairs(A:GetAutoMailEntries()) do
@@ -249,9 +256,7 @@ function A:GetAutoMailEntry(itemName, itemID)
       end
     elseif itemLower and entry.itemName and entry.itemName ~= "" then
       local entryLower = entry.itemName:lower()
-      if itemLower == entryLower
-        or string.find(itemLower, entryLower, 1, true) ~= nil
-        or string.find(entryLower, itemLower, 1, true) ~= nil then
+      if string.find(itemLower, entryLower, 1, true) ~= nil then
         return entry
       end
     end
