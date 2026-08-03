@@ -2,6 +2,21 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [5.3] - 2026-08-03
+
+### Fixed
+- **`/am list` no longer reports items that never went out, and counts a stack as a stack** ([#11](https://github.com/Tharavol/AutoMailer/issues/11)). The tally was written when an item was attached to the form, so a mail that then failed still showed up as delivered; it is now written when the server confirms the mail. Each attachment also counted as one item regardless of how many the slot held, so a full stack of 200 Linen Cloth read `Linen Cloth x1`.
+- **The completion message no longer counts batches that sent nothing** ([#12](https://github.com/Tharavol/AutoMailer/issues/12)). It reported a position in the queue rather than a count of mails, and a batch skipped for having nothing attachable advances that position without sending anything, so every skipped batch inflated the total.
+- **A mail carrying only gold no longer announces an item count of zero** ([#30](https://github.com/Tharavol/AutoMailer/issues/30)). `Sent 0 item(s) and 3306g to Siannodel` is now `Sent 3306g to Siannodel`. A mail carrying both still reports both.
+- **A wrong-typed `useGlobalProfile` in saved variables now repairs to the same default a fresh install gets** ([#13](https://github.com/Tharavol/AutoMailer/issues/13)). The repair pass restated the defaults by hand and had drifted from `DefaultMeta`, so a corrupted value didn't just get fixed — it quietly moved the character onto the per-character profile when the intended default is the global one.
+- **Clicking Send Mail again while the gold confirmation is open no longer stacks a second dialog** ([#14](https://github.com/Tharavol/AutoMailer/issues/14)). The re-entry guard only went up once that dialog was accepted, so a second click built a second queue against bags the first run was about to empty.
+
+### Internal
+- The meta-preference repair pass in `A:InitializeSavedVariables` is driven off `A:DefaultMeta` rather than restating each default, which is how the two came to disagree.
+- The bag scan carries each slot's stack size onto the queued item. Batch sizes and run totals still count slots, since a slot is what occupies an attachment.
+- **`SendMailBatch` has tests**, via a fake mail form standing in for the Blizzard globals it drives directly. That scaffolding belongs in the addon rather than the test file ([#15](https://github.com/Tharavol/AutoMailer/issues/15)), but without it the sent tally, the mails-sent count and the per-mail chat line would all ship untested.
+- The suite is up from 69 tests to 81.
+
 ## [5.2] - 2026-08-03
 
 ### Fixed
