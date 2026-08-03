@@ -247,20 +247,38 @@ end
 -- a rule for "Heavy Silken Thread" also mailed Silken Thread, and with no
 -- minimum length, an item named "Thread" too. Breadth is what the containment
 -- test above is for; the reverse only ever mailed things nobody asked for.
+--
+-- Item rules are checked in a separate first pass, so an exact rule always
+-- beats a name rule that happens to also match. This used to be one pass in
+-- storage order, which made precedence depend on the order rules were added:
+-- a name rule for "Cloth" added before an exact rule for Linen Cloth won, and
+-- deleting and re-adding either one silently flipped where Linen Cloth went.
+-- Nothing in the options panel showed that ordering or let you change it -
+-- the two kinds live in two separate tables - so the order was invisible as
+-- well as arbitrary. Specific beats general is the rule the two-table UI
+-- already implies.
 function A:GetAutoMailEntry(itemName, itemID)
-  local itemLower = itemName and itemName:lower() or nil
-  for _, entry in ipairs(A:GetAutoMailEntries()) do
-    if entry.itemID then
-      if itemID and entry.itemID == itemID then
-        return entry
-      end
-    elseif itemLower and entry.itemName and entry.itemName ~= "" then
-      local entryLower = entry.itemName:lower()
-      if string.find(itemLower, entryLower, 1, true) ~= nil then
+  local entries = A:GetAutoMailEntries()
+
+  if itemID then
+    for _, entry in ipairs(entries) do
+      if entry.itemID == itemID then
         return entry
       end
     end
   end
+
+  local itemLower = itemName and itemName:lower() or nil
+  if not itemLower then return nil end
+
+  for _, entry in ipairs(entries) do
+    if not entry.itemID and entry.itemName and entry.itemName ~= "" then
+      if string.find(itemLower, entry.itemName:lower(), 1, true) ~= nil then
+        return entry
+      end
+    end
+  end
+
   return nil
 end
 
