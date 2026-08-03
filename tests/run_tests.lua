@@ -10,6 +10,7 @@
     lua tests/run_tests.lua
 ]]
 
+require("tests.test_locale")
 require("tests.test_profile")
 require("tests.test_mailqueue")
 

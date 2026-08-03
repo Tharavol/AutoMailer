@@ -10,6 +10,8 @@ local Testkit = require("tests.testkit")
 local function NewFakeAddon(bagContents, opts)
   opts = opts or {}
   local A = Testkit.NewAddonTable()
+  -- Same order as the TOC: MailQueue captures A.L at file scope.
+  Testkit.LoadModule("Locale.lua", A)
   Testkit.LoadModule("Core.lua", A)
   Testkit.LoadModule("Profile.lua", A)
   Testkit.LoadModule("MailQueue.lua", A)
