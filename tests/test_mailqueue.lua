@@ -4,7 +4,7 @@
 
 local Testkit = require("tests.testkit")
 
--- A tiny fake bag: bagContents[bag][slot] = { itemLink, locked, soulbound }.
+-- A tiny fake bag: bagContents[bag][slot] = { itemLink, locked, soulbound, count }.
 -- Overrides the Core.lua container/item wrappers so BuildMailQueue's logic
 -- runs against controlled data instead of a real client's bags.
 local function NewFakeAddon(bagContents, opts)
@@ -27,8 +27,8 @@ local function NewFakeAddon(bagContents, opts)
     local entry = bagContents[bag] and bagContents[bag][slot]
     if not entry then return nil end
     -- Matches the (icon, count, locked, quality, ..., itemLink, ...) shape
-    -- BuildMailQueue reads; only locked (3rd) and itemLink (7th) are used.
-    return nil, 1, entry.locked or false, entry.quality or 1, false, false, entry.itemLink
+    -- BuildMailQueue reads: count (2nd), locked (3rd) and itemLink (7th).
+    return nil, entry.count or 1, entry.locked or false, entry.quality or 1, false, false, entry.itemLink
   end
 
   function A:ItemIsSoulbound(bag, slot)
@@ -158,6 +158,30 @@ Testkit.Test("BuildMailQueue splits a recipient's items across MAX_MAIL_ATTACHME
   Testkit.AssertEqual(#batches, 2, "13 items should split into a 12-item and a 1-item batch")
   Testkit.AssertEqual(#batches[1].items, 12)
   Testkit.AssertEqual(#batches[2].items, 1)
+end)
+
+-- The stack size is only ever read here, in the bag scan; Send.lua needs it to
+-- report what actually went out, and by then the slot has been emptied.
+Testkit.Test("BuildMailQueue carries each slot's stack size onto the queued item", function()
+  local A = NewFakeAddon({
+    [0] = {
+      { itemLink = "item:2589", locked = false, soulbound = false, count = 200 },
+      { itemLink = "item:2592", locked = false, soulbound = false },
+    },
+  }, {
+    itemInfoByLink = {
+      ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 },
+      ["item:2592"] = { name = "Wool Cloth", itemID = 2592, bindType = 0 },
+    },
+  })
+  tinsert(A:GetAutoMailEntries(), { itemName = "Cloth", recipient = "Bankalt" })
+
+  local batches, itemCount = A:BuildMailQueue("DefaultRecipient", "")
+
+  Testkit.AssertEqual(batches[1].items[1].count, 200)
+  Testkit.AssertEqual(batches[1].items[2].count, 1, "a single item is a stack of one")
+  Testkit.AssertEqual(itemCount, 2,
+      "the run's own totals stay in slots, since a slot is what occupies an attachment")
 end)
 
 Testkit.Test("BuildMailQueue honors a BoE rarity limit", function()

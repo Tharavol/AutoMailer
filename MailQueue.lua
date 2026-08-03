@@ -89,13 +89,18 @@ function A:BuildMailQueue(recipient, boeRecipient)
     end
   end
 
-  local function queueItem(targetRecipient, bag, slot, itemLink)
+  -- count is how many the slot holds, carried through so the sent tally can
+  -- report a stack as its real size. Everything else here counts slots, since
+  -- a slot is what occupies an attachment: totalItems and the batch chunking
+  -- below are both about how many mails this needs, not how many objects.
+  local function queueItem(targetRecipient, bag, slot, itemLink, count)
     if A:IsCurrentCharacter(targetRecipient) then
       noteSkip("recipient is the currently logged in character", itemLink)
       return
     end
     queuedByRecipient[targetRecipient] = queuedByRecipient[targetRecipient] or {}
-    tinsert(queuedByRecipient[targetRecipient], { bag = bag, slot = slot, itemLink = itemLink })
+    tinsert(queuedByRecipient[targetRecipient],
+        { bag = bag, slot = slot, itemLink = itemLink, count = count or 1 })
     totalItems = totalItems + 1
   end
 
@@ -117,7 +122,7 @@ function A:BuildMailQueue(recipient, boeRecipient)
   local function scanBag(bag, mailEverything, boeApplies)
     local slotCount = A:GetContainerNumSlots(bag)
     for slot = 1, slotCount do
-      local _, _, locked, _, _, _, itemLink = A:GetContainerItemInfo(bag, slot)
+      local _, stackCount, locked, _, _, _, itemLink = A:GetContainerItemInfo(bag, slot)
       if itemLink and locked then
         noteSkip("locked by the client", itemLink)
       elseif itemLink and A:ItemIsSoulbound(bag, slot) then
@@ -172,7 +177,7 @@ function A:BuildMailQueue(recipient, boeRecipient)
         end
 
         if targetRecipient and #targetRecipient > 0 then
-          queueItem(targetRecipient, bag, slot, itemLink)
+          queueItem(targetRecipient, bag, slot, itemLink, stackCount)
         else
           noteSkip(skipReason or "matched no rule", itemLink)
         end
