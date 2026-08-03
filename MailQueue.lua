@@ -57,9 +57,41 @@ function A:BuildMailQueue(recipient, boeRecipient)
   local queuedByRecipient = {}
   local totalItems = 0
 
+  --[[
+    Why an item was passed over, collected while scanning so the run can
+    account for every occupied slot afterwards.
+
+    A run that queues nothing used to report exactly one line - "produced 0
+    batch(es) covering 0 item(s)" - with no way to tell an empty bag from
+    soulbound contents from rules that simply didn't match. That is precisely
+    when the log is most needed and it said least.
+
+    Grouped by reason rather than logged per slot: a full bag of unmatched
+    items would otherwise bury everything else. Item names are sampled, not
+    listed exhaustively, for the same reason.
+  ]]
+  local SKIP_SAMPLE_LIMIT = 8
+  local skipped = {}
+  local debugging = A:IsDebugLogging()
+
+  local function noteSkip(reason, itemLink)
+    -- Collection is the one piece of debug work heavy enough to be worth
+    -- skipping outright when nobody will read it.
+    if not debugging then return end
+    local bucket = skipped[reason]
+    if not bucket then
+      bucket = { count = 0, samples = {} }
+      skipped[reason] = bucket
+    end
+    bucket.count = bucket.count + 1
+    if #bucket.samples < SKIP_SAMPLE_LIMIT then
+      tinsert(bucket.samples, itemLink or "<unknown>")
+    end
+  end
+
   local function queueItem(targetRecipient, bag, slot, itemLink)
     if A:IsCurrentCharacter(targetRecipient) then
-      A:Log("Skipping", itemLink or "<unknown>", "- recipient", targetRecipient, "is the currently logged in character")
+      noteSkip("recipient is the currently logged in character", itemLink)
       return
     end
     queuedByRecipient[targetRecipient] = queuedByRecipient[targetRecipient] or {}
@@ -86,7 +118,11 @@ function A:BuildMailQueue(recipient, boeRecipient)
     local slotCount = A:GetContainerNumSlots(bag)
     for slot = 1, slotCount do
       local _, _, locked, _, _, _, itemLink = A:GetContainerItemInfo(bag, slot)
-      if itemLink and not locked and not A:ItemIsSoulbound(bag, slot) then
+      if itemLink and locked then
+        noteSkip("locked by the client", itemLink)
+      elseif itemLink and A:ItemIsSoulbound(bag, slot) then
+        noteSkip("soulbound", itemLink)
+      elseif itemLink then
         local itemName, _, rarity, _, itemMinLevel, _, _, _, _, _, _, _, _, bindType = A:GetItemInfo(itemLink)
         local itemID = A:GetItemIDFromLink(itemLink)
 
@@ -104,27 +140,41 @@ function A:BuildMailQueue(recipient, boeRecipient)
 
         local entry = A:GetAutoMailEntry(itemName, itemID)
         local targetRecipient = nil
+        local skipReason = nil
 
         if entry then
           if entry.recipient and entry.recipient ~= "" then
             targetRecipient = entry.recipient
           else
             targetRecipient = recipient
+            -- Reachable since a run can start on rule recipients alone: this
+            -- rule matched but names nobody, and there is no default to fall
+            -- back to. Silently dropping it looks like the rule is broken.
+            skipReason = "rule matched but has no recipient, and no default Recipient is set"
           end
 
         elseif mailEverything then
           targetRecipient = recipient
+          skipReason = "no default Recipient set for the reagent sweep"
 
         elseif boeApplies and A:AutomailBoe(bindType) then
           local rarityOk = (not A.db.limitBoeRarity) or rarity <= A.db.boeRarityLimit
           local levelOk = (not A.db.LimitBoeLevel) or itemMinLevel < A:GetPlayerLevel()
           if rarityOk and levelOk then
             targetRecipient = (#boeRecipient > 0) and boeRecipient or recipient
+            skipReason = "BoE passed the filters but no BoE Recipient or Recipient is set"
+          else
+            skipReason = "BoE outside the configured rarity/level limits"
           end
+
+        else
+          skipReason = "matched no rule"
         end
 
         if targetRecipient and #targetRecipient > 0 then
           queueItem(targetRecipient, bag, slot, itemLink)
+        else
+          noteSkip(skipReason or "matched no rule", itemLink)
         end
       end
     end
@@ -198,7 +248,51 @@ function A:BuildMailQueue(recipient, boeRecipient)
     end
   end
 
+  A:LogQueueDetail(batches, skipped)
+
   return batches, totalItems
+end
+
+--[[
+  The per-run debug account: what is going to whom, and what was passed over.
+
+  Split out of BuildMailQueue so the queue-building logic stays readable, and
+  so the formatting cost only happens when debug logging is on.
+
+  Reasons are sorted so two runs over the same bags produce the same output -
+  pairs() order would otherwise shuffle the lines and make two logs awkward to
+  compare, which is the main thing anyone does with these.
+]]
+function A:LogQueueDetail(batches, skipped)
+  if not A:IsDebugLogging() then return end
+
+  for i, batch in ipairs(batches) do
+    if batch.goldThresholdCopper then
+      A:Log("Batch", i, "to", batch.recipient .. ":", "excess gold, amount resolved at send time")
+    else
+      local names = {}
+      for _, item in ipairs(batch.items) do
+        tinsert(names, A:GetItemInfo(item.itemLink) or item.itemLink or "<unknown>")
+      end
+      A:Log("Batch", i, "to", batch.recipient .. ":", "subject=" .. A:GetBatchSubject(batch),
+          "[" .. table.concat(names, ", ") .. "]")
+    end
+  end
+
+  local reasons = {}
+  for reason in pairs(skipped) do
+    tinsert(reasons, reason)
+  end
+  table.sort(reasons)
+
+  for _, reason in ipairs(reasons) do
+    local bucket = skipped[reason]
+    local sample = table.concat(bucket.samples, ", ")
+    if bucket.count > #bucket.samples then
+      sample = sample .. ", ... (" .. (bucket.count - #bucket.samples) .. " more)"
+    end
+    A:Log("Skipped", bucket.count, "item(s) -", reason .. ":", sample)
+  end
 end
 
 function A:GetBatchSubject(batch)

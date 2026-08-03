@@ -54,7 +54,9 @@ end
 
 function E:PLAYER_ENTERING_WORLD(login, reloadUI)
   if (login or reloadUI) and AutoMailer.loginMessage and A.loaded then
-    print(A.addonName .. L["loaded"])
+    -- No "v" prefix: the TOC version comes from the release tag, which already
+    -- carries one (same reason as Send.lua's run banner).
+    print(A.addonName .. string.format(L["%s loaded"], A:GetVersion()))
   end
 end
 
@@ -121,14 +123,16 @@ local function PrintSentSummary()
   local printedAnything = false
 
   for recipient, items in pairs(A.itemsSent) do
-    local line = ""
+    local parts = {}
     for itemName, count in pairs(items) do
-      if #line > 0 then
-        line = line .. ", " .. itemName .. "x" .. count
-      else
-        line = itemName .. "x" .. count
-      end
+      tinsert(parts, string.format(L["%s x%d"], itemName, count))
     end
+    -- Left as plain punctuation rather than a translation key: a key whose
+    -- English value is ", " would fall back to the literal string ", " as its
+    -- own name, which is exactly what the key-is-the-text scheme can't
+    -- express. If a locale needs a different list separator, that is the point
+    -- to introduce a real key for it.
+    local line = table.concat(parts, ", ")
 
     if #line > 0 then
       A:Print(string.format(L["Items sent to %s"], recipient))

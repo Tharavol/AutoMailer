@@ -32,8 +32,16 @@ function A:Print(...)
   DEFAULT_CHAT_FRAME:AddMessage(A.addonName .. "- " .. strjoin(" ", tostringall(...)))
 end
 
+-- Exposed separately from A:Log because some debug output is worth more than
+-- it costs to produce: BuildMailQueue's run summary has to accumulate skip
+-- reasons while it scans, which is wasted work when nobody will read it.
+-- Callers that only format strings should just call A:Log and let it decide.
+function A:IsDebugLogging()
+  return (AutoMailer and AutoMailer.debugLogging) and true or false
+end
+
 function A:Log(...)
-  if not AutoMailer or not AutoMailer.debugLogging then return end
+  if not A:IsDebugLogging() then return end
   DEFAULT_CHAT_FRAME:AddMessage("|cff888888" .. A.addonName .. "Debug|r " .. strjoin(" ", tostringall(...)))
 end
 
