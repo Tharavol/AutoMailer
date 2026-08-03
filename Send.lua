@@ -26,6 +26,17 @@ A.mailQueue = nil
 A.mailQueueIndex = 0
 A.mailTriggerButton = nil
 
+-- Whether the gold confirmation is on screen waiting to be answered. Separate
+-- from sendingMail, which only goes up once that popup is accepted: without
+-- this, clicking the trigger button again while the dialog was open built a
+-- second queue and stacked a second dialog behind the first.
+A.pendingConfirmation = false
+
+-- Mails actually handed to SendMail this run, as opposed to positions worked
+-- through in the queue. The completion message used to report mailQueueIndex,
+-- which counts batches that were skipped for having nothing attachable too.
+A.mailsSent = 0
+
 --[[
   How long to wait for MAIL_SUCCESS or MAIL_FAILED after calling SendMail
   before giving up on the run.
@@ -78,6 +89,13 @@ StaticPopupDialogs["AUTOMAILER_CONFIRM_SEND"] = {
   OnCancel = function()
     A:Print(L["Send cancelled."])
   end,
+  -- Clears the re-entry guard however the dialog leaves the screen - accepted,
+  -- cancelled, or dismissed with Escape. Doing it here rather than in the two
+  -- button handlers means no dismissal path can leave the guard stuck on, with
+  -- the trigger button refusing every later run for the rest of the session.
+  OnHide = function()
+    A.pendingConfirmation = false
+  end,
   timeout = 0,
   whileDead = true,
   hideOnEscape = true,
@@ -92,6 +110,7 @@ function A:ResetMailSendState()
   A.awaitConfirmSent = false
   A.mailQueue = nil
   A.mailQueueIndex = 0
+  A.mailsSent = 0
   -- Invalidates any watchdog still pending, so it can't fire into the next run.
   A.sendGeneration = A.sendGeneration + 1
 end
@@ -178,6 +197,14 @@ function A:StartMailSend()
     return
   end
 
+  -- A queue is built against the bags as they are right now, so a second one
+  -- built while the first is still waiting to be accepted would be answering
+  -- for slots the first run is about to empty.
+  if A.pendingConfirmation then
+    A:Print(L["A send is already waiting on the gold confirmation."])
+    return
+  end
+
   A:Log("StartMailSend invoked")
 
   local recipient = A.db.recipient or ""
@@ -211,6 +238,7 @@ function A:StartMailSend()
   local summary = A:SummarizeQueue(queue)
   if summary.goldCopper > 0 and A.db.confirmGoldSends then
     A:Log("Awaiting confirmation for a run including roughly", summary.goldCopper, "copper")
+    A.pendingConfirmation = true
     StaticPopup_Show("AUTOMAILER_CONFIRM_SEND", BuildConfirmationText(summary), nil, queue)
     return
   end
@@ -231,6 +259,7 @@ function A:BeginMailRun(queue)
 
   A.mailQueue = queue
   A.mailQueueIndex = 0
+  A.mailsSent = 0
   A.sendingMail = true
   A.awaitConfirmSent = false
 
@@ -247,7 +276,7 @@ function A:ProcessMailQueue()
   local batch = A.mailQueue[A.mailQueueIndex]
 
   if not batch then
-    A:Print(string.format(L["AutoMailer finished: sent %d mail(s)."], A.mailQueueIndex - 1))
+    A:Print(string.format(L["AutoMailer finished: sent %d mail(s)."], A.mailsSent))
     A:ResetMailSendState()
     return
   end
@@ -352,16 +381,24 @@ function A:SendMailBatch(batch)
     SetSendMailMoney(money)
   end
 
-  A.itemsSent[batch.recipient] = A.itemsSent[batch.recipient] or {}
+  -- What this mail would add to the /am list tally, held on the batch rather
+  -- than folded straight in: attaching an item is not the same as sending it,
+  -- and a batch that fails from here on never went anywhere. A:CommitSentItems
+  -- applies this when MAIL_SUCCESS says the mail is really away.
+  local pendingSent = {}
 
   local attachedCount = 0
   for i, item in ipairs(batch.items) do
     if A:AttachItemToMail(item.bag, item.slot, i, item.itemLink) then
       attachedCount = attachedCount + 1
       local itemName = A:GetItemInfo(item.itemLink) or item.itemLink
-      A.itemsSent[batch.recipient][itemName] = (A.itemsSent[batch.recipient][itemName] or 0) + 1
+      -- By stack size, not by attachment: an attachment is one slot, which for
+      -- most of what this addon mails is a stack of a couple hundred. The tally
+      -- counted attachments, so a full stack of Linen Cloth read "Linen Cloth x1".
+      pendingSent[itemName] = (pendingSent[itemName] or 0) + (item.count or 1)
     end
   end
+  batch.pendingSent = pendingSent
 
   if attachedCount == 0 and money == 0 then
     A:Print(string.format(L["Could not attach any items for %s; skipping this batch."], batch.recipient))
@@ -382,19 +419,50 @@ function A:SendMailBatch(batch)
   A.moneyBeforeSend = A:GetMoney()
   A:ArmSendWatchdog()
   SendMail(batch.recipient, subject, "")
+  A.mailsSent = A.mailsSent + 1
 
-  if money > 0 then
+  -- Three cases, not two: the excess-gold batch carries no items at all, and
+  -- announcing "Sent 0 item(s) and 3306g to Siannodel" made the interesting
+  -- half of the sentence share billing with a zero. A mixed mail is only
+  -- theoretical today - BuildMailQueue gives the gold batch an empty item list
+  -- - but the branch stays honest rather than assuming that holds.
+  if attachedCount > 0 and money > 0 then
     A:Print(string.format(L["Sent %d item(s) and %s to %s"],
         attachedCount, GetCoinTextureString(money), batch.recipient))
+  elseif money > 0 then
+    A:Print(string.format(L["Sent %s to %s"], GetCoinTextureString(money), batch.recipient))
   else
     A:Print(string.format(L["Sent %d item(s) to %s"], attachedCount, batch.recipient))
   end
+end
+
+-- Folds a confirmed mail's contents into the session tally /am list reads.
+function A:CommitSentItems(batch)
+  if not batch or not batch.pendingSent then return end
+
+  A.itemsSent = A.itemsSent or {}
+  local tally = A.itemsSent[batch.recipient]
+  if not tally then
+    tally = {}
+    A.itemsSent[batch.recipient] = tally
+  end
+
+  for itemName, count in pairs(batch.pendingSent) do
+    tally[itemName] = (tally[itemName] or 0) + count
+  end
+
+  -- Cleared so a batch can only ever be counted once, however often this runs.
+  batch.pendingSent = nil
 end
 
 function A:OnMailSuccess(mailID)
   A:Log("MAIL_SUCCESS mailID=", mailID)
   A.awaitConfirmSent = false
   if not A.sendingMail then return end
+
+  -- This is the first point at which the mail is known to have gone, so it is
+  -- where its contents join the tally.
+  A:CommitSentItems(A.mailQueue and A.mailQueue[A.mailQueueIndex])
 
   -- GetMoney() doesn't necessarily update the instant MAIL_SUCCESS fires -
   -- this mail's postage lands on the client's money value with a variable
