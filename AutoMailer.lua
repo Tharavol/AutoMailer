@@ -56,22 +56,34 @@ function E:PLAYER_ENTERING_WORLD(login, reloadUI)
   end
 end
 
-function E:MAIL_SHOW()
+-- How many frames to wait for Blizzard_MailFrame before giving up. It loads
+-- within a frame or two in practice; the cap is only here so a client where it
+-- never loads at all fails visibly instead of retrying forever.
+local MAIL_FRAME_WAIT_FRAMES = 20
+
+function E:MAIL_SHOW(attempt)
   -- On the mailbox's first open in a session, Blizzard_MailFrame can still be
   -- loading when this event reaches us, so MailFrame doesn't exist yet.
   -- EnsureMailTriggerButton silently no-ops in that case; retry next frame
   -- instead of permanently missing this open (every later open works fine
   -- since Blizzard_MailFrame is already loaded by then).
   if not MailFrame then
+    attempt = (attempt or 0) + 1
+    if attempt > MAIL_FRAME_WAIT_FRAMES then
+      A:Log("MAIL_SHOW: MailFrame still missing after", MAIL_FRAME_WAIT_FRAMES, "frames; giving up")
+      return
+    end
     A:Log("MAIL_SHOW: MailFrame not ready yet, retrying next frame")
     C_Timer.After(0, function()
-      E:MAIL_SHOW()
+      E:MAIL_SHOW(attempt)
     end)
     return
   end
 
-  A:EnsureMailTriggerButton()
-  A.mailTriggerButton:Show()
+  local triggerButton = A:EnsureMailTriggerButton()
+  if triggerButton then
+    triggerButton:Show()
+  end
 
   -- Shift is a heavily-used modifier and this kicks off a full run - including
   -- mailing gold - before you've had a chance to look at anything, so it's now
