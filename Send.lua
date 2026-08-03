@@ -68,6 +68,13 @@ function A:ResetMailSendState()
   A.mailQueueIndex = 0
 end
 
+-- Creates the button if it doesn't exist yet and (re)anchors it to the mail
+-- frame, returning it. Deliberately does not decide whether it should be
+-- visible: MAIL_SHOW shows it, and MAIL_CLOSED plus MailFrame's own OnHide
+-- hide it. This used to also show/hide based on MailFrame:IsShown(), while
+-- the caller unconditionally showed it afterwards - two places owning one
+-- decision, and the caller always won, because MailFrame isn't necessarily
+-- shown yet at the moment MAIL_SHOW fires.
 function A:EnsureMailTriggerButton()
   if not MailFrame then return nil end
 
@@ -75,9 +82,6 @@ function A:EnsureMailTriggerButton()
     local button = CreateFrame("Button", "AutoMailerMailButton", UIParent, "UIPanelButtonTemplate")
     button:SetSize(140, 24)
     button:SetText("Send Mail")
-    button:SetPoint("TOP", MailFrame, "TOP", 0, 30)
-    button:SetFrameStrata(MailFrame:GetFrameStrata())
-    button:SetFrameLevel(MailFrame:GetFrameLevel() + 5)
     button:SetScript("OnClick", function()
       A:StartMailSend()
     end)
@@ -91,15 +95,10 @@ function A:EnsureMailTriggerButton()
     A.mailFrameHooked = true
   end
 
-  if MailFrame and MailFrame:IsShown() then
-    A.mailTriggerButton:Show()
-    A.mailTriggerButton:ClearAllPoints()
-    A.mailTriggerButton:SetPoint("TOP", MailFrame, "TOP", 0, 30)
-    A.mailTriggerButton:SetFrameStrata(MailFrame:GetFrameStrata())
-    A.mailTriggerButton:SetFrameLevel(MailFrame:GetFrameLevel() + 5)
-  else
-    A.mailTriggerButton:Hide()
-  end
+  A.mailTriggerButton:ClearAllPoints()
+  A.mailTriggerButton:SetPoint("TOP", MailFrame, "TOP", 0, 30)
+  A.mailTriggerButton:SetFrameStrata(MailFrame:GetFrameStrata())
+  A.mailTriggerButton:SetFrameLevel(MailFrame:GetFrameLevel() + 5)
 
   return A.mailTriggerButton
 end
@@ -175,7 +174,9 @@ function A:BeginMailRun(queue)
     return
   end
 
-  A:Print("Starting AutoMailer send run (v" .. A:GetVersion() .. ")")
+  -- No "v" prefix here: the TOC version comes from the release tag, which
+  -- already carries one.
+  A:Print("Starting AutoMailer send run (" .. A:GetVersion() .. ")")
 
   A.mailQueue = queue
   A.mailQueueIndex = 0
@@ -277,8 +278,8 @@ function A:SendMailBatch(batch)
   -- batch), reflects this specific mail's real postage. Must happen before
   -- GetBatchSubject below, which depends on batch.money to pick the "Gold" subject.
   if batch.goldThresholdCopper then
-    local postage = (GetSendMailPrice and GetSendMailPrice()) or 0
-    batch.money = math.max(0, GetMoney() - batch.goldThresholdCopper - postage)
+    local postage = A:GetSendMailPrice()
+    batch.money = A:ExcessGoldToSend(A:GetMoney(), batch.goldThresholdCopper, postage)
     A:Log("Resolved excess gold at send time: postage=", postage, "money=", batch.money)
   end
 
@@ -327,7 +328,7 @@ function A:SendMailBatch(batch)
   -- recorded here so MAIL_SUCCESS can confirm the balance actually moved
   -- before letting the next batch (e.g. an excess-gold batch reading GetMoney()
   -- to compute its amount) proceed. See A:OnMailSuccess for why.
-  A.moneyBeforeSend = GetMoney()
+  A.moneyBeforeSend = A:GetMoney()
   SendMail(batch.recipient, subject, "")
 
   if money > 0 then
@@ -356,7 +357,7 @@ function A:OnMailSuccess(mailID)
   local function waitForMoneyUpdate()
     if not A.sendingMail then return end
     attempts = attempts + 1
-    if GetMoney() ~= moneyBeforeSend or attempts >= 20 then
+    if A:GetMoney() ~= moneyBeforeSend or attempts >= 20 then
       A:ProcessMailQueue()
     else
       C_Timer.After(0.1, waitForMoneyUpdate)
