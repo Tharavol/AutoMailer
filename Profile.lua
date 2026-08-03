@@ -137,10 +137,18 @@ function A:InitializeSavedVariables()
   ApplyDefaults(AutoMailer, A:DefaultProfile())
   ApplyDefaults(AutoMailerGlobal, A:DefaultProfile())
 
-  if type(AutoMailer.loginMessage) ~= "boolean" then AutoMailer.loginMessage = true end
-  if type(AutoMailer.debugLogging) ~= "boolean" then AutoMailer.debugLogging = false end
-  if type(AutoMailer.useGlobalProfile) ~= "boolean" then AutoMailer.useGlobalProfile = false end
-  if type(AutoMailer.autoSendOnShiftOpen) ~= "boolean" then AutoMailer.autoSendOnShiftOpen = false end
+  -- Repairs a meta pref whose saved value is there but has the wrong type -
+  -- ApplyDefaults above only fills in ones that are missing outright.
+  --
+  -- Driven off DefaultMeta rather than restating each default, which is how the
+  -- two got to disagree: this pass repaired useGlobalProfile to false while
+  -- DefaultMeta gave fresh installs true, so a corrupted value didn't just get
+  -- fixed, it silently switched the character onto a different profile.
+  for key, default in pairs(A:DefaultMeta()) do
+    if type(AutoMailer[key]) ~= type(default) then
+      AutoMailer[key] = default
+    end
+  end
 
   A:SanitizeProfile(AutoMailer)
   A:SanitizeProfile(AutoMailerGlobal)
