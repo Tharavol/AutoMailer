@@ -2,6 +2,25 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [5.1] - 2026-08-02
+
+### Changed
+- **The rule table is now two tables: "Items to AutoMail" and "Name Matches"** ([#2](https://github.com/Tharavol/AutoMailer/issues/2)). Previously both kinds of rule shared one list and were told apart by a question-mark icon standing in for the missing item icon, which read as a missing icon rather than as a distinction. They're now separate tables: rules that identify one item show that item's icon and match it exactly, and rules that match by text sit in their own table with no icon column, since the text names no particular item.
+- **Typing a name the client recognizes as an item now makes the rule an exact item rule** and moves it into the Items table, icon and all. Anything else stays a name rule in Name Matches. This narrows the rule — `Linen Cloth` typed in full stops matching Linen Cloth Bandages — so add rules under Name Matches when loose matching is what you want. Stored rules, including every rule migrated from a pre-4.9 text list, are never converted on load: an upgrade still can't change what gets mailed.
+- **Add Item** now only adds the item on your cursor; the button for typing a rule by hand is **Add Name Rule**, under the Name Matches table.
+- Both tables read from the same saved rule list, so saved variables are unchanged and no migration is involved.
+
+### Fixed
+- **Name rules no longer match items whose names they merely contain** ([#4](https://github.com/Tharavol/AutoMailer/issues/4)). Matching ran in both directions, so a rule for `Heavy Silken Thread` also mailed Silken Thread — and, with no minimum length, an item named `Thread` too. Only the intended direction remains: your text has to appear in the item's name. This can only ever mail *fewer* things than before, but it is a behavior change if a setup was leaning on the over-match.
+- **An item the client hasn't cached yet no longer silently disables BoE handling for it** ([#5](https://github.com/Tharavol/AutoMailer/issues/5)). `GetItemInfo` returns nothing for an uncached item, which left `bindType` nil, quietly failed the BoE check, and let a run under-send while reporting success. The skip is now logged and the item's data is requested so the next run classifies it. itemID rules were always unaffected, which is what made this hard to notice.
+- **The version no longer displays with a doubled `v`** (`vv5.0.2`) in the options panel and the send-run chat line ([#3](https://github.com/Tharavol/AutoMailer/issues/3)). The TOC version has carried its own leading `v` since 5.0.2; both call sites were still adding another.
+- The `MAIL_SHOW` handler no longer retries forever when `MailFrame` never appears; it gives up after 20 frames and logs it.
+
+### Internal
+- **`GetMoney`, `GetSendMailPrice` and `UnitLevel` now go through `Core.lua`** like the container and item APIs already did, and the excess-gold arithmetic is split out of `SendMailBatch` into `A:HasExcessGold` / `A:ExcessGoldToSend`. That math is the only irreversible part of a send run and the source of the 4.7/4.8 postage bugs and the 5.x shortfall, and it had no test coverage; it now has tests for the threshold boundary, postage exceeding the excess, and the clamp at zero.
+- **The promote/demote decision moved out of the options panel into `A:ApplyRuleName`** in `Profile.lua`, which takes the name resolver as an argument. The panel now only renders the outcome, and the policy is testable without a frame.
+- The ordinary-bag and Reagent-Bag scans in `BuildMailQueue` are one function taking a flag instead of two near-copies that had already drifted apart.
+
 ## [5.0.2] - 2026-08-01
 
 Packaging and tooling only — no functional changes.

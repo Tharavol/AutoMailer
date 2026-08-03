@@ -6,6 +6,7 @@ A World of Warcraft addon that adds a **Send Mail** button to the mailbox and au
 
 - **One-click sending** — opens the mailbox, click "Send Mail", and AutoMailer attaches and sends everything that matches your rules. Run it as many times as you like; it just picks up whatever's left in your bags.
 - **Per-item recipient rules** — a table of rules, one row per item, each with the item's icon, its name, and its own recipient. A blank recipient falls back to your default Recipient. Build it by shift-clicking or dragging items straight out of your bags.
+- **Name matching** — a second table for rules that match by text instead of by item, so `Ore` mails every ore. Kept separate from the item table, because a text rule doesn't name one item and so has no icon to show.
 - **Auto-mail crafting reagents** — optionally sends everything sitting in your Reagent Bag.
 - **Auto-mail BoE items** — optionally mails Bind-on-Equip items to a separate BoE Recipient, with optional filters for item level (only below your character's level) and rarity (uncommon/rare/epic).
 - **Excess gold mailing** — optionally mails gold above a configurable threshold to your Recipient, automatically accounting for mail postage so your balance lands exactly on the threshold. Since gold is the one part of a run that's genuinely awkward to undo, a run that would send gold asks for confirmation first by default (item-only runs still send in one click).
@@ -33,12 +34,23 @@ A World of Warcraft addon that adds a **Send Mail** button to the mailbox and au
 
 ## Configuration
 
-Open the options panel with `/am` (or via the standard WoW AddOns options menu). It's split across two pages: **AutoMailer** (Recipient and the item table) and **Filters & Automation**, a subcategory underneath it, for everything else below.
+Open the options panel with `/am` (or via the standard WoW AddOns options menu). It's split across two pages: **AutoMailer** (Recipient and the rule tables) and **Filters & Automation**, a subcategory underneath it, for everything else below.
+
+Rules live in two tables, because there are two kinds of rule:
 
 - **Recipient** — the default recipient for matched items.
-- **Items to AutoMail** — the table of per-item rules. Each row has the item's icon, its name, and a recipient; leave a row's recipient blank to use the default Recipient (shown greyed in the field). Add rows by shift-clicking or dragging an item from your bags, or with **Add Item** to type a name by hand. The red X removes a row.
+- **Items to AutoMail** — rules that match one specific item. Each row has the item's icon, its name, and a recipient; leave a row's recipient blank to use the default Recipient (shown greyed in the field). Add rows by shift-clicking or dragging an item from your bags, or with **Add Item** while holding one on the cursor. The red X removes a row.
 
-  Rules added by clicking or dragging an item match that exact item, so a rule for Linen Cloth won't also sweep up Linen Cloth Bandages. Rules you type by hand match loosely — any item whose name contains what you typed — so `Ore` still catches every ore. A question-mark icon marks a loose rule; typing over a row's name converts it to one.
+  These match that exact item, so a rule for Linen Cloth won't also sweep up Linen Cloth Bandages.
+- **Name Matches** — rules that match by text: any item whose name contains what you typed, so `Ore` catches every ore. Press **Add Name Rule** and type. These rows have no icon, since the text doesn't name one particular item.
+
+  Matching is one-directional — your text has to appear in the item's name, not the other way round. A rule for `Ore` mails Copper Ore; a rule for `Heavy Silken Thread` does *not* mail Silken Thread.
+
+  The two tables are one list under the hood, and a rule moves between them when you edit its text. Type something the game recognizes as an item name and the rule becomes an exact item rule, icon and all, and jumps up to **Items to AutoMail**; type anything else and it stays a name rule. Note that this makes the rule *narrower* — typing `Linen Cloth` in full will stop it matching Linen Cloth Bandages. Whether a name is recognized depends on whether your client has that item cached, so an unrecognized name is normal and harmless: a name rule spelling an item out in full still mails it.
+
+  Rules carried over from before version 4.9 stay in **Name Matches** and are never converted automatically, so an upgrade can't quietly change what gets mailed.
+
+  One reason to prefer the Items table where you can: name rules are tied to your client's language, since they match the item name as your client spells it. Item rules match by ID and keep working on any locale.
 - **Use one global profile for all characters** — shares the recipient, item list, BoE settings, and gold settings across every character instead of keeping them per-character.
 - **Automatically send BoEs** — mails any Bind-on-Equip item found in your bags.
   - **Only BoEs with required level lower than yours** — skips BoEs whose required level is at or above your current level.
