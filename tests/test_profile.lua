@@ -92,8 +92,173 @@ Testkit.Test("GetAutoMailEntry: a name-only rule matches loosely, by substring",
 
   Testkit.AssertTrue(A:GetAutoMailEntry("Copper Ore", 2770) ~= nil,
       "a loose 'Ore' rule should match any item whose name contains it")
+  Testkit.AssertTrue(A:GetAutoMailEntry("Ore", 1) ~= nil,
+      "a loose rule should match an item named exactly like it")
   Testkit.AssertTrue(A:GetAutoMailEntry("Linen Cloth", 2589) == nil,
       "a loose 'Ore' rule should not match unrelated items")
+end)
+
+-- Matching used to run in both directions, so a rule matched any item whose
+-- name was a substring of the rule text: "Heavy Silken Thread" also mailed
+-- Silken Thread, and with no length floor, an item named "Thread" too.
+Testkit.Test("GetAutoMailEntry: a name rule does not match items whose names it contains", function()
+  local A = NewA()
+  A.db = { items = { { itemName = "Heavy Silken Thread", recipient = "" } } }
+
+  Testkit.AssertTrue(A:GetAutoMailEntry("Heavy Silken Thread", 4291) ~= nil,
+      "the rule must still match the item it names")
+  for _, name in ipairs({ "Silken Thread", "Thread", "Silken", "Heavy", "Silk", "n" }) do
+    Testkit.AssertTrue(A:GetAutoMailEntry(name, 1) == nil,
+        "'" .. name .. "' is not what the rule asked for and must not match")
+  end
+end)
+
+Testkit.Test("SplitAutoMailEntries separates itemID rules from name rules", function()
+  local A = NewA()
+  local linen = { itemID = 2589, itemName = "Linen Cloth", recipient = "" }
+  local ore = { itemName = "Ore", recipient = "Bankalt" }
+  local frostwood = { itemID = 123, itemName = "Frostwood", recipient = "" }
+  A.db = { items = { linen, ore, frostwood } }
+
+  local exact, loose = A:SplitAutoMailEntries()
+
+  Testkit.AssertEqual(#exact, 2, "both itemID rules belong in the Items table")
+  Testkit.AssertEqual(#loose, 1, "the name rule belongs in the Name Matches table")
+  -- The options table edits rules in place through these lists, so they have
+  -- to hold the entries themselves rather than copies of them.
+  Testkit.AssertTrue(exact[1] == linen and exact[2] == frostwood,
+      "split must return the stored entry tables, in order")
+  Testkit.AssertTrue(loose[1] == ore, "split must return the stored entry tables, in order")
+end)
+
+Testkit.Test("SplitAutoMailEntries handles all-exact and all-loose lists", function()
+  local A = NewA()
+
+  A.db = { items = { { itemID = 2589, itemName = "Linen Cloth", recipient = "" } } }
+  local exact, loose = A:SplitAutoMailEntries()
+  Testkit.AssertEqual(#exact, 1)
+  Testkit.AssertEqual(#loose, 0)
+
+  A.db = { items = { { itemName = "Ore", recipient = "" } } }
+  exact, loose = A:SplitAutoMailEntries()
+  Testkit.AssertEqual(#exact, 0)
+  Testkit.AssertEqual(#loose, 1)
+end)
+
+Testkit.Test("FindAutoMailEntryByName matches name rules case-insensitively", function()
+  local A = NewA()
+  local ore = { itemName = "Ore", recipient = "" }
+  A.db = { items = { ore, { itemID = 2589, itemName = "Linen Cloth", recipient = "" } } }
+
+  Testkit.AssertTrue(A:FindAutoMailEntryByName("ore") == ore,
+      "a name rule should be found regardless of case")
+  Testkit.AssertTrue(A:FindAutoMailEntryByName("Ore", ore) == nil,
+      "the entry being edited must not count as its own duplicate")
+  Testkit.AssertTrue(A:FindAutoMailEntryByName("Linen Cloth") == nil,
+      "an itemID rule is not a name rule, so it must not block one")
+  Testkit.AssertTrue(A:FindAutoMailEntryByName("   ") == nil, "a blank name matches nothing")
+end)
+
+-- Promotion of a typed name to an itemID rule happens only when the user
+-- edits a rule (OptionsPanel's CommitName). Loading or migrating must never
+-- do it, or an upgrade would silently narrow what a pre-4.9 setup mails.
+Testkit.Test("migration and sanitizing leave rules as loose name rules", function()
+  local A = NewA()
+  local profile = { items = "Linen Cloth = Bankalt" }
+  A:SanitizeProfile(profile)
+
+  Testkit.AssertEqual(profile.items[1].itemID, nil,
+      "a migrated rule must stay loose even though its name is a real item")
+
+  A.db = profile
+  local exact, loose = A:SplitAutoMailEntries()
+  Testkit.AssertEqual(#exact, 0)
+  Testkit.AssertEqual(#loose, 1, "migrated rules land in the Name Matches table")
+end)
+
+--[[ ApplyRuleName - the promote/demote policy the options panel drives ]]
+
+-- Stands in for C_Item.GetItemInfoInstant: resolves only the names given to
+-- it, exactly as the real one resolves only what the client has cached.
+local function Resolver(knownNames)
+  return function(text)
+    local known = knownNames[text]
+    if not known then return nil end
+    return known.itemID, known.canonicalName
+  end
+end
+
+Testkit.Test("ApplyRuleName promotes a recognized name to an exact item rule", function()
+  local A = NewA()
+  local entry = { itemName = "linen cloth", recipient = "Bankalt" }
+  A.db = { items = { entry } }
+
+  local status, _, movedTable = A:ApplyRuleName(entry, "Linen Cloth",
+      Resolver({ ["Linen Cloth"] = { itemID = 2589, canonicalName = "Linen Cloth" } }))
+
+  Testkit.AssertEqual(status, "applied")
+  Testkit.AssertEqual(entry.itemID, 2589)
+  Testkit.AssertEqual(entry.itemName, "Linen Cloth", "the canonical name should win over what was typed")
+  Testkit.AssertEqual(entry.recipient, "Bankalt", "the recipient must survive a rule changing kind")
+  Testkit.AssertTrue(movedTable, "gaining an itemID moves the rule to the Items table")
+end)
+
+Testkit.Test("ApplyRuleName leaves an unrecognized name as a name rule", function()
+  local A = NewA()
+  local entry = { itemID = 2589, itemName = "Linen Cloth", recipient = "" }
+  A.db = { items = { entry } }
+
+  local status, _, movedTable = A:ApplyRuleName(entry, "  Ore  ", Resolver({}))
+
+  Testkit.AssertEqual(status, "applied")
+  Testkit.AssertEqual(entry.itemID, nil, "an unrecognized name demotes the rule to a name rule")
+  Testkit.AssertEqual(entry.itemName, "Ore", "the typed text is trimmed before being stored")
+  Testkit.AssertTrue(movedTable, "losing an itemID moves the rule to the Name Matches table")
+end)
+
+Testkit.Test("ApplyRuleName reports an unchanged name without touching the rule", function()
+  local A = NewA()
+  local entry = { itemName = "Ore", recipient = "" }
+  A.db = { items = { entry } }
+
+  local status = A:ApplyRuleName(entry, "  Ore  ", Resolver({
+    ["Ore"] = { itemID = 999, canonicalName = "Ore" },
+  }))
+
+  Testkit.AssertEqual(status, "unchanged")
+  Testkit.AssertEqual(entry.itemID, nil, "an unchanged name must not be re-resolved and promoted")
+end)
+
+Testkit.Test("ApplyRuleName rejects a name that duplicates another rule", function()
+  local A = NewA()
+  local existing = { itemID = 2589, itemName = "Linen Cloth", recipient = "" }
+  local editing = { itemName = "Ore", recipient = "" }
+  A.db = { items = { existing, editing } }
+  local resolver = Resolver({ ["Linen Cloth"] = { itemID = 2589, canonicalName = "Linen Cloth" } })
+
+  local status, duplicate = A:ApplyRuleName(editing, "Linen Cloth", resolver)
+  Testkit.AssertEqual(status, "duplicate")
+  Testkit.AssertTrue(duplicate == existing, "the conflicting rule should come back for the message")
+  Testkit.AssertEqual(editing.itemName, "Ore", "a rejected edit must leave the rule alone")
+
+  local otherName = { itemName = "Cloth", recipient = "" }
+  tinsert(A.db.items, otherName)
+  Testkit.AssertEqual(A:ApplyRuleName(editing, "Cloth", resolver), "duplicate",
+      "name rules collide with each other too")
+end)
+
+Testkit.Test("ApplyRuleName treats a blank name as a name rule, not a lookup", function()
+  local A = NewA()
+  local entry = { itemID = 2589, itemName = "Linen Cloth", recipient = "" }
+  A.db = { items = { entry } }
+
+  local status = A:ApplyRuleName(entry, "   ", function()
+    error("a blank name must never reach the resolver")
+  end)
+
+  Testkit.AssertEqual(status, "applied")
+  Testkit.AssertEqual(entry.itemID, nil)
+  Testkit.AssertEqual(entry.itemName, "")
 end)
 
 Testkit.Test("GetAutoMailEntries returns the live table by reference", function()

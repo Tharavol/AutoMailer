@@ -61,6 +61,41 @@ function A:GetItemIDFromLink(itemLink)
   return (C_Item.GetItemInfoInstant(itemLink))
 end
 
+-- Asks the client to cache an item's data. A bag scan that finds an item
+-- GetItemInfo can't answer for yet has to skip it (see BuildMailQueue); this
+-- is what makes the next run able to classify it properly.
+function A:RequestItemDataLoad(itemID)
+  if itemID and C_Item and C_Item.RequestLoadItemDataByID then
+    C_Item.RequestLoadItemDataByID(itemID)
+  end
+end
+
+--[[
+  Money and player state, wrapped for the same reason the container and item
+  APIs above are: nothing outside this file should reach for the game's
+  globals directly.
+
+  These three gate the excess-gold math specifically, which is the one part of
+  a send run that can't be undone by mailing things back, and the part that has
+  produced the most bugs (see the 4.7/4.8 postage notes and the 5.x shortfall).
+  Going through here is what lets that math be driven by tests instead of only
+  ever being exercised live.
+]]
+function A:GetMoney()
+  return GetMoney()
+end
+
+-- Postage for whatever is currently on the send-mail form. Not a flat fee: it
+-- scales with attachments, and only reports honestly once the form has a
+-- recipient on it. See SendMailBatch for why it's queried where it is.
+function A:GetSendMailPrice()
+  return (GetSendMailPrice and GetSendMailPrice()) or 0
+end
+
+function A:GetPlayerLevel()
+  return UnitLevel("PLAYER")
+end
+
 -- Whether this specific bag slot's item is bound to the character, which is
 -- what makes it unmailable.
 --

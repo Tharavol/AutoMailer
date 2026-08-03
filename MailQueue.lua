@@ -24,6 +24,30 @@ function A:AutomailBoe(bindType)
   return A.db.SendBOE and bindType == 2
 end
 
+--[[
+  The excess-gold arithmetic, kept here as two plain functions over plain
+  numbers rather than inline at the two places that need it.
+
+  This is the only part of a send run that can't be undone by mailing things
+  back, and it's had the most bugs: the amount can't be worked out when the
+  queue is built (postage scales with attachments and is only honest once the
+  send form has a recipient), so the decision to queue and the decision of how
+  much to send happen in different files, minutes apart, off a GetMoney() that
+  moves underneath them. Splitting the arithmetic out means both callers share
+  one definition of it and it can be tested directly.
+]]
+function A:HasExcessGold(currentCopper, thresholdCopper)
+  return (currentCopper or 0) > (thresholdCopper or 0)
+end
+
+-- What to actually put on the mail. Postage comes in as an argument because
+-- only the caller, at send time, can ask the game for it. Clamped at zero:
+-- postage can exceed the excess when the balance is barely over the threshold,
+-- and a negative amount would be nonsense to hand to SetSendMailMoney.
+function A:ExcessGoldToSend(currentCopper, thresholdCopper, postageCopper)
+  return math.max(0, (currentCopper or 0) - (thresholdCopper or 0) - (postageCopper or 0))
+end
+
 -- Scans all bags once and builds a flat list of send batches, each with a
 -- recipient and at most MAX_MAIL_ATTACHMENTS items (one mail can only carry
 -- so many attachments).
@@ -41,14 +65,33 @@ function A:BuildMailQueue(recipient, boeRecipient)
     totalItems = totalItems + 1
   end
 
-  for bag = 0, NUM_BAG_SLOTS do
+  -- One pass over a single bag. The Reagent Bag differs from the ordinary
+  -- bags in exactly two ways, both of them captured by mailEverything:
+  -- nothing in it has to match a rule to be mailed, and BoE handling doesn't
+  -- apply to it. Keeping that difference as a flag rather than as a second
+  -- copy of this loop is deliberate - the two had already drifted apart.
+  local function scanBag(bag, mailEverything)
     local slotCount = A:GetContainerNumSlots(bag)
     for slot = 1, slotCount do
       local _, _, locked, _, _, _, itemLink = A:GetContainerItemInfo(bag, slot)
       if itemLink and not locked and not A:ItemIsSoulbound(bag, slot) then
         local itemName, _, rarity, _, itemMinLevel, _, _, _, _, _, _, _, _, bindType = A:GetItemInfo(itemLink)
+        local itemID = A:GetItemIDFromLink(itemLink)
+
+        -- GetItemInfo returns nothing for an item the client hasn't cached
+        -- yet, which used to pass through here silently: bindType came back
+        -- nil, so the item quietly failed the BoE check and a run could
+        -- under-send while reporting success. itemID rules still work (they
+        -- don't need the cache), so say so in the log and ask the client to
+        -- load the data for next time.
+        if not itemName then
+          A:Log("Item data not cached yet for", itemLink, "- name rules and BoE handling",
+              "can't be applied to it on this run; requesting a load")
+          A:RequestItemDataLoad(itemID)
+        end
+
+        local entry = A:GetAutoMailEntry(itemName, itemID)
         local targetRecipient = nil
-        local entry = A:GetAutoMailEntry(itemName, A:GetItemIDFromLink(itemLink))
 
         if entry then
           if entry.recipient and entry.recipient ~= "" then
@@ -57,9 +100,12 @@ function A:BuildMailQueue(recipient, boeRecipient)
             targetRecipient = recipient
           end
 
+        elseif mailEverything then
+          targetRecipient = recipient
+
         elseif A:AutomailBoe(bindType) then
           local rarityOk = (not A.db.limitBoeRarity) or rarity <= A.db.boeRarityLimit
-          local levelOk = (not A.db.LimitBoeLevel) or itemMinLevel < UnitLevel("PLAYER")
+          local levelOk = (not A.db.LimitBoeLevel) or itemMinLevel < A:GetPlayerLevel()
           if rarityOk and levelOk then
             targetRecipient = (#boeRecipient > 0) and boeRecipient or recipient
           end
@@ -72,29 +118,17 @@ function A:BuildMailQueue(recipient, boeRecipient)
     end
   end
 
+  for bag = 0, NUM_BAG_SLOTS do
+    scanBag(bag, false)
+  end
+
   -- The Reagent Bag (bag 5) is a dedicated container the game auto-sorts
   -- crafting materials into. Rather than trying to identify "is this a
   -- reagent" via item classification (which proved unreliable - GetItemInfo
   -- fields can be uncached, and classID/type schemes shift between
   -- expansions), just mail out anything non-soulbound sitting in that bag.
   if A.db.SendReagents then
-    local reagentBag = REAGENTBAG_CONTAINER or 5
-    local slotCount = A:GetContainerNumSlots(reagentBag)
-    for slot = 1, slotCount do
-      local _, _, locked, _, _, _, itemLink = A:GetContainerItemInfo(reagentBag, slot)
-      if itemLink and not locked and not A:ItemIsSoulbound(reagentBag, slot) then
-        local itemName = A:GetItemInfo(itemLink)
-        local targetRecipient = recipient
-        local entry = A:GetAutoMailEntry(itemName, A:GetItemIDFromLink(itemLink))
-        if entry and entry.recipient and entry.recipient ~= "" then
-          targetRecipient = entry.recipient
-        end
-
-        if targetRecipient and #targetRecipient > 0 then
-          queueItem(targetRecipient, reagentBag, slot, itemLink)
-        end
-      end
-    end
+    scanBag(REAGENTBAG_CONTAINER or 5, true)
   end
 
   local recipients = {}
@@ -129,7 +163,7 @@ function A:BuildMailQueue(recipient, boeRecipient)
     -- own (zero-item) postage queried fresh in that moment.
     if A:IsCurrentCharacter(goldRecipient) then
       A:Log("Skipping excess gold - recipient", goldRecipient, "is the currently logged in character")
-    elseif GetMoney() > thresholdCopper and goldRecipient and #goldRecipient > 0 then
+    elseif A:HasExcessGold(A:GetMoney(), thresholdCopper) and goldRecipient and #goldRecipient > 0 then
       A:Log("Queuing excess gold batch (amount computed at send time): threshold=", A.db.goldThreshold,
           "recipient=", goldRecipient)
       tinsert(batches, { recipient = goldRecipient, items = {}, goldThresholdCopper = thresholdCopper })
@@ -178,7 +212,9 @@ function A:SummarizeQueue(queue)
       tinsert(summary.recipients, batch.recipient)
     end
     if batch.goldThresholdCopper then
-      summary.goldCopper = math.max(0, GetMoney() - batch.goldThresholdCopper)
+      -- Zero postage: the confirmation is showing an approximate figure, and
+      -- this mail's real postage isn't knowable until it's about to go out.
+      summary.goldCopper = A:ExcessGoldToSend(A:GetMoney(), batch.goldThresholdCopper, 0)
       summary.goldRecipient = batch.recipient
     end
   end
