@@ -18,6 +18,8 @@
 
 local _, A = ...
 
+local L = A.L
+
 A.MAX_MAIL_ATTACHMENTS = ATTACHMENTS_MAX_SEND or 12
 
 function A:AutomailBoe(bindType)
@@ -176,15 +178,15 @@ end
 
 function A:GetBatchSubject(batch)
   if #batch.items == 0 and batch.money and batch.money > 0 then
-    return "Gold"
+    return L["Gold"]
   end
   local first = batch.items[1]
   local name = first and A:GetItemInfo(first.itemLink)
   if not name or name == "" then
-    name = "Item"
+    name = L["Item"]
   end
   if #batch.items > 1 then
-    return name .. " +" .. (#batch.items - 1) .. " more"
+    return string.format(L["%s +%d more"], name, #batch.items - 1)
   end
   return name
 end
