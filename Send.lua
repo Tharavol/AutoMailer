@@ -26,6 +26,29 @@ A.mailQueue = nil
 A.mailQueueIndex = 0
 A.mailTriggerButton = nil
 
+--[[
+  How long to wait for MAIL_SUCCESS or MAIL_FAILED after calling SendMail
+  before giving up on the run.
+
+  Every batch ends by handing off to the server and waiting for one of those
+  two events to drive the next one. If neither arrives, nothing else moves the
+  state machine: sendingMail stays true, every later click on the trigger
+  button answers "A mail send is already in progress.", and only closing the
+  mailbox clears it. awaitConfirmSent existed to catch exactly this and was
+  never read by anything - this is the missing half.
+
+  Generous on purpose. It is a stuck-run backstop, not a latency budget: a
+  slow server round-trip must never trip it, because aborting a run that is
+  merely slow would be worse than the stall it protects against.
+]]
+local SEND_CONFIRM_TIMEOUT = 20
+
+-- Bumped every time a run starts or a batch is handed off, so a timer that
+-- fires late can tell whether it is still guarding the send it was armed for.
+-- Without it, a watchdog armed for batch 3 could abort batch 4 after batch 3
+-- confirmed normally.
+A.sendGeneration = 0
+
 local function BuildConfirmationText(summary)
   local lines = {}
 
@@ -69,6 +92,27 @@ function A:ResetMailSendState()
   A.awaitConfirmSent = false
   A.mailQueue = nil
   A.mailQueueIndex = 0
+  -- Invalidates any watchdog still pending, so it can't fire into the next run.
+  A.sendGeneration = A.sendGeneration + 1
+end
+
+-- Arms the stuck-run backstop for the batch just handed to SendMail. Fires
+-- only if that same batch is still unconfirmed when the timeout elapses:
+-- ResetMailSendState and every subsequent hand-off bump the generation, so a
+-- stale timer recognizes itself and does nothing.
+function A:ArmSendWatchdog()
+  A.sendGeneration = A.sendGeneration + 1
+  local generation = A.sendGeneration
+
+  C_Timer.After(SEND_CONFIRM_TIMEOUT, function()
+    if not A.sendingMail then return end
+    if A.sendGeneration ~= generation then return end
+    if not A.awaitConfirmSent then return end
+
+    A:Log("Send watchdog fired after", SEND_CONFIRM_TIMEOUT, "seconds with no MAIL_SUCCESS or MAIL_FAILED")
+    A:Print(L["No response from the server for the last mail; stopping AutoMailer run."])
+    A:ResetMailSendState()
+  end)
 end
 
 -- Creates the button if it doesn't exist yet and (re)anchors it to the mail
@@ -332,6 +376,7 @@ function A:SendMailBatch(batch)
   -- before letting the next batch (e.g. an excess-gold batch reading GetMoney()
   -- to compute its amount) proceed. See A:OnMailSuccess for why.
   A.moneyBeforeSend = A:GetMoney()
+  A:ArmSendWatchdog()
   SendMail(batch.recipient, subject, "")
 
   if money > 0 then
