@@ -46,8 +46,13 @@ end
 
 local ROW_HEIGHT = 26
 local LIST_WIDTH = 280
-local LIST_HEIGHT = 300
-local QUESTION_MARK = "Interface\\Icons\\INV_Misc_QuestionMark"
+-- The two lists share the left column of a canvas panel that does not scroll,
+-- so their heights are a budget, not a preference: together with the headers
+-- and buttons around them they have to stay inside what the single 300px list
+-- used to occupy.
+local ITEM_LIST_HEIGHT = 156
+local NAME_LIST_HEIGHT = 78
+local UNKNOWN_ITEM_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 local LIST_BACKDROP = {
   bgFile = "Interface\\TutorialFrame\\TutorialFrameBackground",
@@ -58,61 +63,25 @@ local LIST_BACKDROP = {
   insets = { left = 4, right = 4, top = 4, bottom = 4 }
 }
 
--- Builds the "Items to AutoMail" table: a ScrollBox-backed list with one row
--- per rule, each showing the item's icon, an editable name, an editable
--- per-rule recipient and a delete button. Returns the backdrop frame so the
--- caller can anchor the rest of the panel beside it.
+--[[
+  Builds the two rule tables: "Items to AutoMail" and "Name Matches".
+
+  Both are ScrollBox-backed views onto the same A.db.items list, split by
+  whether a rule carries an itemID (see A:SplitAutoMailEntries). The split is
+  what the user sees, because the two kinds of rule behave differently: an
+  itemID rule identifies one item, so it can show that item's icon and matches
+  only that item; a name rule matches by substring, so there is no single item
+  to draw an icon for. A rule moves between the tables by gaining or losing its
+  itemID, which only happens in CommitName.
+
+  Returns the Items backdrop frame so the caller can anchor the rest of the
+  panel beside it.
+]]
 local function CreateItemTable(optionsPanel, anchorTo)
-  local header = optionsPanel:CreateFontString(nil, "OVERLAY")
-  header:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", -5, -15)
-  header:SetFontObject("GameFontNormal")
-  header:SetText("Items to AutoMail")
+  local itemList, nameList
+  local RefreshLists
 
-  local instructions = optionsPanel:CreateFontString(nil, "OVERLAY")
-  instructions:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
-  instructions:SetFontObject("GameFontDisableSmall")
-  instructions:SetJustifyH("LEFT")
-  instructions:SetWidth(LIST_WIDTH)
-  instructions:SetText("Shift-click or drag an item from your bags to add it. "
-      .. "Leave a recipient blank to use the default Recipient.")
-
-  -- Column labels sit at the same x offsets as the matching widgets in
-  -- AutoMailerItemRowTemplate so they line up with the rows below.
-  local itemColumn = optionsPanel:CreateFontString(nil, "OVERLAY")
-  itemColumn:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", 34, -8)
-  itemColumn:SetFontObject("GameFontNormalSmall")
-  itemColumn:SetText("Item")
-
-  local recipientColumn = optionsPanel:CreateFontString(nil, "OVERLAY")
-  recipientColumn:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", 158, -8)
-  recipientColumn:SetFontObject("GameFontNormalSmall")
-  recipientColumn:SetText("Recipient")
-
-  local scrollBox = CreateFrame("Frame", nil, optionsPanel, "WowScrollBoxList")
-  scrollBox:SetSize(LIST_WIDTH, LIST_HEIGHT)
-  scrollBox:SetPoint("TOPLEFT", itemColumn, "BOTTOMLEFT", -34, -6)
-  scrollBox:EnableMouse(true)
-
-  local scrollBar = CreateFrame("EventFrame", nil, optionsPanel, "MinimalScrollBar")
-  scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 8, 0)
-  scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 8, 0)
-
-  local itemsBG = CreateFrame("Frame", nil, optionsPanel, BackdropTemplateMixin and "BackdropTemplate")
-  itemsBG:SetPoint("TOPLEFT", scrollBox, "TOPLEFT", -8, 8)
-  itemsBG:SetPoint("BOTTOMRIGHT", scrollBar, "BOTTOMRIGHT", 8, -8)
-  itemsBG.backdropInfo = LIST_BACKDROP
-  itemsBG:ApplyBackdrop()
-  itemsBG:SetFrameLevel(math.max(1, scrollBox:GetFrameLevel() - 1))
-
-  local emptyText = scrollBox:CreateFontString(nil, "OVERLAY")
-  emptyText:SetPoint("TOP", scrollBox, "TOP", 0, -16)
-  emptyText:SetWidth(LIST_WIDTH - 30)
-  emptyText:SetFontObject("GameFontDisableSmall")
-  emptyText:SetJustifyH("CENTER")
-  emptyText:SetText("No items yet.\n\nShift-click an item in your bags, drag one\n"
-      .. "onto this list, or press Add Item below.")
-
-  local RefreshList
+  --[[ SHARED ROW BEHAVIOR ]]
 
   local function UpdateRecipientHint(row)
     local isEmpty = A:Trim(row.Recipient:GetText()) == ""
@@ -121,9 +90,10 @@ local function CreateItemTable(optionsPanel, anchorTo)
     row.RecipientHint:SetShown(isEmpty and not row.Recipient.hasFocus)
   end
 
-  -- Rules with an itemID show the real item icon and quality color; rules
-  -- matched by name only get a question mark, which is also the visual cue
-  -- that they match loosely (see A:GetAutoMailEntry).
+  -- Only ever called for rows in the Items table, which are the only rows with
+  -- an IconButton. The question mark is no longer a rule-kind cue - name rules
+  -- live in their own table now - so it only stands in for an itemID whose
+  -- item data the client can't produce at all.
   local function UpdateRowItem(row, entry)
     local icon, quality
 
@@ -151,7 +121,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
       end
     end
 
-    row.IconButton.Icon:SetTexture(icon or QUESTION_MARK)
+    row.IconButton.Icon:SetTexture(icon or UNKNOWN_ITEM_ICON)
 
     local color = quality and ITEM_QUALITY_COLORS[quality]
     if color then
@@ -161,16 +131,9 @@ local function CreateItemTable(optionsPanel, anchorTo)
     end
   end
 
-  local function FindEntryByItemID(itemID)
-    for _, entry in ipairs(A:GetAutoMailEntries()) do
-      if entry.itemID == itemID then return entry end
-    end
-    return nil
-  end
-
   local function AddItemByID(itemID, fallbackName)
     if not itemID then return false end
-    if FindEntryByItemID(itemID) then
+    if A:FindAutoMailEntryByItemID(itemID) then
       A:Print((C_Item.GetItemInfo(itemID) or fallbackName or "That item") .. " is already in your list.")
       return false
     end
@@ -179,7 +142,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
       itemName = C_Item.GetItemInfo(itemID) or fallbackName or "",
       recipient = "",
     })
-    RefreshList()
+    RefreshLists()
     return true
   end
 
@@ -203,13 +166,13 @@ local function CreateItemTable(optionsPanel, anchorTo)
     if not row.entry then return end
     local itemID = TakeCursorItem()
     if not itemID then return end
-    if FindEntryByItemID(itemID) then
+    if A:FindAutoMailEntryByItemID(itemID, row.entry) then
       A:Print("That item is already in your list.")
       return
     end
     row.entry.itemID = itemID
     row.entry.itemName = C_Item.GetItemInfo(itemID) or row.entry.itemName
-    RefreshList()
+    RefreshLists()
   end
 
   local function DeleteRow(row)
@@ -222,20 +185,40 @@ local function CreateItemTable(optionsPanel, anchorTo)
         break
       end
     end
-    RefreshList()
+    RefreshLists()
   end
 
-  -- Typing over the name turns an exact-item rule back into a loose name
-  -- rule, which is the only way to get back to "match anything containing
-  -- this word" once a rule was added by clicking an item.
+  -- The resolver A:ApplyRuleName decides rule kind with. GetItemInfoInstant
+  -- only answers for items in the client's local cache, so the same name can
+  -- resolve in one session and not the next; that is survivable because a name
+  -- rule spelling an item out in full still matches that item, just loosely.
+  local function ResolveItemID(itemName)
+    local itemID = C_Item.GetItemInfoInstant(itemName)
+    if type(itemID) ~= "number" then return nil end
+    return itemID, C_Item.GetItemInfo(itemID)
+  end
+
+  local function ResetName(row)
+    row.Name:SetText(row.entry and row.entry.itemName or "")
+    row.Name:SetCursorPosition(0)
+  end
+
+  -- The decision itself lives in A:ApplyRuleName, where it can be tested
+  -- without a frame; this is just the display half of it.
   local function CommitName(row)
-    local entry = row.entry
-    if not entry then return end
-    local text = A:Trim(row.Name:GetText())
-    if text == (entry.itemName or "") then return end
-    entry.itemName = text
-    entry.itemID = nil
-    UpdateRowItem(row, entry)
+    if not row.entry then return end
+
+    local status, duplicate = A:ApplyRuleName(row.entry, row.Name:GetText(), ResolveItemID)
+    if status == "unchanged" then return end
+
+    if status == "duplicate" then
+      A:Print((duplicate.itemName ~= "" and duplicate.itemName or "That item")
+          .. " is already in your list.")
+      ResetName(row)
+      return
+    end
+
+    RefreshLists()
   end
 
   local function CommitRecipient(row)
@@ -253,7 +236,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
 
     row.Name:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     row.Name:SetScript("OnEscapePressed", function(self)
-      self:SetText(row.entry and row.entry.itemName or "")
+      ResetName(row)
       self:ClearFocus()
     end)
     row.Name:SetScript("OnEditFocusLost", function() CommitName(row) end)
@@ -272,30 +255,36 @@ local function CreateItemTable(optionsPanel, anchorTo)
       CommitRecipient(row)
     end)
 
-    row.IconButton:SetScript("OnEnter", function(self)
-      local entry = row.entry
-      if not (entry and entry.itemID) then return end
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:SetItemByID(entry.itemID)
-      GameTooltip:Show()
-    end)
-    row.IconButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    row.IconButton:SetScript("OnClick", function() ReplaceRowFromCursor(row) end)
-    row.IconButton:SetScript("OnReceiveDrag", function() ReplaceRowFromCursor(row) end)
+    -- Name Matches rows have no icon: their template omits it, because a
+    -- substring rule doesn't identify an item to draw or to look up.
+    if row.IconButton then
+      row.IconButton:SetScript("OnEnter", function(self)
+        local entry = row.entry
+        if not (entry and entry.itemID) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetItemByID(entry.itemID)
+        GameTooltip:Show()
+      end)
+      row.IconButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+      row.IconButton:SetScript("OnClick", function() ReplaceRowFromCursor(row) end)
+      row.IconButton:SetScript("OnReceiveDrag", function() ReplaceRowFromCursor(row) end)
+    end
 
     row.Delete:SetScript("OnClick", function() DeleteRow(row) end)
     row.Delete:SetScript("OnEnter", function(self)
       GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:SetText("Remove this item")
+      GameTooltip:SetText("Remove this rule")
       GameTooltip:Show()
     end)
     row.Delete:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+    -- Dropping an item anywhere always means "mail this exact item", so both
+    -- tables' rows add to the Items table rather than to the one dropped on.
     row:SetScript("OnClick", function() AddFromCursor() end)
     row:SetScript("OnReceiveDrag", function() AddFromCursor() end)
   end
 
-  local function InitRow(row, entry)
+  local function InitRow(row, entry, list)
     row.entry = entry
 
     if not row.scriptsInitialized then
@@ -309,56 +298,166 @@ local function CreateItemTable(optionsPanel, anchorTo)
     row.Recipient:SetCursorPosition(0)
     row.Recipient.hasFocus = false
 
-    UpdateRowItem(row, entry)
+    if row.IconButton then
+      UpdateRowItem(row, entry)
+    end
     UpdateRecipientHint(row)
 
-    local dataProvider = scrollBox:GetDataProvider()
+    local dataProvider = list.scrollBox:GetDataProvider()
     local index = dataProvider and dataProvider.FindIndex and dataProvider:FindIndex(entry)
     row.Stripe:SetShown((index or 1) % 2 == 0)
   end
 
-  local view = CreateScrollBoxListLinearView()
-  view:SetElementExtent(ROW_HEIGHT)
-  view:SetPadding(2, 2, 2, 2, 2)
-  view:SetElementInitializer("AutoMailerItemRowTemplate", InitRow)
-  ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+  --[[ LIST CONSTRUCTION ]]
 
-  -- Rules are edited in place on A.db.items, so the list is redrawn by
-  -- rebuilding the data provider around that same table rather than by
-  -- mutating the provider. RetainScrollPosition keeps a deletion or an edit
-  -- from bouncing the user back to the top of a long list.
-  RefreshList = function()
-    local entries = A:GetAutoMailEntries()
-    scrollBox:SetDataProvider(CreateDataProvider(entries), ScrollBoxConstants.RetainScrollPosition)
-    emptyText:SetShown(#entries == 0)
+  -- Both tables are the same stack of widgets - header, blurb, column labels,
+  -- a ScrollBox and scroll bar inside a backdrop, an empty-state message, and
+  -- a button underneath - differing only in their row template, their column
+  -- inset and what their button does.
+  local function CreateRuleList(spec)
+    local list = {}
+
+    local header = optionsPanel:CreateFontString(nil, "OVERLAY")
+    header:SetPoint("TOPLEFT", spec.anchorTo, "BOTTOMLEFT", spec.anchorX, spec.anchorY)
+    header:SetFontObject("GameFontNormal")
+    header:SetText(spec.header)
+
+    local instructions = optionsPanel:CreateFontString(nil, "OVERLAY")
+    instructions:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
+    instructions:SetFontObject("GameFontDisableSmall")
+    instructions:SetJustifyH("LEFT")
+    instructions:SetWidth(LIST_WIDTH)
+    instructions:SetText(spec.instructions)
+
+    -- Column labels sit at the same x offsets as the matching widgets in the
+    -- row template so they line up with the rows below. Both templates put
+    -- Recipient at the same offset; only the first column differs, because
+    -- one template starts with an icon and the other doesn't.
+    local itemColumn = optionsPanel:CreateFontString(nil, "OVERLAY")
+    itemColumn:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", spec.columnInset, -8)
+    itemColumn:SetFontObject("GameFontNormalSmall")
+    itemColumn:SetText(spec.itemColumn)
+
+    local recipientColumn = optionsPanel:CreateFontString(nil, "OVERLAY")
+    recipientColumn:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", 158, -8)
+    recipientColumn:SetFontObject("GameFontNormalSmall")
+    recipientColumn:SetText("Recipient")
+
+    local scrollBox = CreateFrame("Frame", nil, optionsPanel, "WowScrollBoxList")
+    scrollBox:SetSize(LIST_WIDTH, spec.height)
+    scrollBox:SetPoint("TOPLEFT", itemColumn, "BOTTOMLEFT", -spec.columnInset, -6)
+    scrollBox:EnableMouse(true)
+
+    local scrollBar = CreateFrame("EventFrame", nil, optionsPanel, "MinimalScrollBar")
+    scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 8, 0)
+    scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 8, 0)
+
+    local backdrop = CreateFrame("Frame", nil, optionsPanel, BackdropTemplateMixin and "BackdropTemplate")
+    backdrop:SetPoint("TOPLEFT", scrollBox, "TOPLEFT", -8, 8)
+    backdrop:SetPoint("BOTTOMRIGHT", scrollBar, "BOTTOMRIGHT", 8, -8)
+    backdrop.backdropInfo = LIST_BACKDROP
+    backdrop:ApplyBackdrop()
+    backdrop:SetFrameLevel(math.max(1, scrollBox:GetFrameLevel() - 1))
+
+    local emptyText = scrollBox:CreateFontString(nil, "OVERLAY")
+    emptyText:SetPoint("TOP", scrollBox, "TOP", 0, -12)
+    emptyText:SetWidth(LIST_WIDTH - 30)
+    emptyText:SetFontObject("GameFontDisableSmall")
+    emptyText:SetJustifyH("CENTER")
+    emptyText:SetText(spec.emptyText)
+
+    local view = CreateScrollBoxListLinearView()
+    view:SetElementExtent(ROW_HEIGHT)
+    view:SetPadding(2, 2, 2, 2, 2)
+    view:SetElementInitializer(spec.template, function(row, entry)
+      InitRow(row, entry, list)
+    end)
+    ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+
+    scrollBox:SetScript("OnReceiveDrag", AddFromCursor)
+    scrollBox:SetScript("OnMouseUp", AddFromCursor)
+
+    local button = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
+    button:SetSize(spec.buttonWidth, 22)
+    button:SetText(spec.buttonText)
+    button:SetPoint("TOPLEFT", backdrop, "BOTTOMLEFT", 4, -6)
+    button:SetScript("OnReceiveDrag", AddFromCursor)
+    button:SetScript("OnClick", spec.onClick)
+
+    list.scrollBox = scrollBox
+    list.backdrop = backdrop
+    list.button = button
+    -- Rules are edited in place on A.db.items, so a list is redrawn by
+    -- rebuilding its data provider around the current split rather than by
+    -- mutating the provider. RetainScrollPosition keeps a deletion or an edit
+    -- from bouncing the user back to the top of a long list.
+    list.SetEntries = function(entries)
+      scrollBox:SetDataProvider(CreateDataProvider(entries), ScrollBoxConstants.RetainScrollPosition)
+      emptyText:SetShown(#entries == 0)
+    end
+
+    return list
   end
 
-  scrollBox:SetScript("OnReceiveDrag", AddFromCursor)
-  scrollBox:SetScript("OnMouseUp", AddFromCursor)
+  itemList = CreateRuleList({
+    template = "AutoMailerItemRowTemplate",
+    height = ITEM_LIST_HEIGHT,
+    anchorTo = anchorTo,
+    anchorX = -5,
+    anchorY = -15,
+    columnInset = 34,
+    header = "Items to AutoMail",
+    itemColumn = "Item",
+    instructions = "Shift-click or drag an item from your bags to add it. "
+        .. "Leave a recipient blank to use the default Recipient.",
+    emptyText = "No items yet.\n\nShift-click an item in your bags or drag one onto this list.",
+    buttonText = "Add Item",
+    buttonWidth = 110,
+    onClick = function()
+      if AddFromCursor() then return end
+      A:Print("Pick up or shift-click an item in your bags to add it, "
+          .. "or use Add Name Rule to match items by name.")
+    end,
+  })
 
-  local addButton = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
-  addButton:SetSize(110, 22)
-  addButton:SetText("Add Item")
-  addButton:SetPoint("TOPLEFT", itemsBG, "BOTTOMLEFT", 4, -6)
-  addButton:SetScript("OnReceiveDrag", AddFromCursor)
-  addButton:SetScript("OnClick", function()
-    if AddFromCursor() then return end
+  nameList = CreateRuleList({
+    template = "AutoMailerNameRowTemplate",
+    height = NAME_LIST_HEIGHT,
+    anchorTo = itemList.button,
+    anchorX = -4,
+    anchorY = -14,
+    columnInset = 10,
+    header = "Name Matches",
+    itemColumn = "Text to match",
+    instructions = "Mails every item whose name contains this text.",
+    emptyText = "No name rules.",
+    buttonText = "Add Name Rule",
+    buttonWidth = 130,
+    onClick = function()
+      if AddFromCursor() then return end
 
-    local entry = { itemName = "", recipient = "" }
-    tinsert(A:GetAutoMailEntries(), entry)
-    RefreshList()
-    if scrollBox.ScrollToEnd then
-      scrollBox:ScrollToEnd()
-    end
-    -- The row frame for a brand new rule only exists after the ScrollBox has
-    -- laid out the rebuilt provider, so grab it on the next frame.
-    C_Timer.After(0, function()
-      local row = scrollBox.FindFrame and scrollBox:FindFrame(entry)
-      if row then
-        row.Name:SetFocus()
+      local entry = { itemName = "", recipient = "" }
+      tinsert(A:GetAutoMailEntries(), entry)
+      RefreshLists()
+      if nameList.scrollBox.ScrollToEnd then
+        nameList.scrollBox:ScrollToEnd()
       end
-    end)
-  end)
+      -- The row frame for a brand new rule only exists after the ScrollBox has
+      -- laid out the rebuilt provider, so grab it on the next frame.
+      C_Timer.After(0, function()
+        local row = nameList.scrollBox.FindFrame and nameList.scrollBox:FindFrame(entry)
+        if row then
+          row.Name:SetFocus()
+        end
+      end)
+    end,
+  })
+
+  RefreshLists = function()
+    local exact, loose = A:SplitAutoMailEntries()
+    itemList.SetEntries(exact)
+    nameList.SetEntries(loose)
+  end
 
   --[[
     SHIFT CLICKING ITEMS INTO THE LIST
@@ -377,19 +476,21 @@ local function CreateItemTable(optionsPanel, anchorTo)
     AddItemByID(A:GetItemIDFromLink(itemLink), C_Item.GetItemInfo(itemLink))
   end)
 
-  optionsPanel.RefreshItemList = RefreshList
+  optionsPanel.RefreshItemList = RefreshLists
   -- Every row's placeholder shows the default Recipient, so editing that
-  -- field has to repaint the rows - without rebuilding the list out from
+  -- field has to repaint the rows - without rebuilding the lists out from
   -- under whichever edit box currently has focus.
   optionsPanel.UpdateRecipientHints = function()
-    if scrollBox.ForEachFrame then
-      scrollBox:ForEachFrame(UpdateRecipientHint)
+    for _, list in ipairs({ itemList, nameList }) do
+      if list.scrollBox.ForEachFrame then
+        list.scrollBox:ForEachFrame(UpdateRecipientHint)
+      end
     end
   end
 
-  RefreshList()
+  RefreshLists()
 
-  return itemsBG
+  return itemList.backdrop
 end
 
 --[[ WIDGET HELPERS ]]
@@ -481,7 +582,9 @@ local function CreateMainPanel()
 
   local versionText = panel:CreateFontString(nil, "OVERLAY")
   versionText:SetFontObject("GameFontDisableSmall")
-  versionText:SetText("v" .. A:GetVersion())
+  -- No "v" prefix here: the TOC version comes from the release tag, which
+  -- already carries one.
+  versionText:SetText(A:GetVersion())
   versionText:SetPoint("LEFT", title, "RIGHT", 8, -2)
 
   local recipientHeader = CreateHeader(panel, "Recipient", title, 0, -15)

@@ -157,12 +157,87 @@ function A:GetAutoMailEntries()
   return A.db.items
 end
 
+-- The options table shows the two kinds of rule as two separate lists, so it
+-- needs them split apart. Both returned arrays hold the same entry tables as
+-- A.db.items, not copies: the options table edits rules in place, and an entry
+-- moves between the lists by gaining or losing its itemID.
+function A:SplitAutoMailEntries()
+  local exact, loose = {}, {}
+  for _, entry in ipairs(A:GetAutoMailEntries()) do
+    tinsert(entry.itemID and exact or loose, entry)
+  end
+  return exact, loose
+end
+
+-- Whether some other rule already matches on this name, so the options table
+-- can reject a duplicate name rule. Comparison is case-insensitive because
+-- A:GetAutoMailEntry matches that way too.
+function A:FindAutoMailEntryByName(itemName, ignoreEntry)
+  local wanted = itemName and A:Trim(itemName):lower() or ""
+  if wanted == "" then return nil end
+  for _, entry in ipairs(A:GetAutoMailEntries()) do
+    if entry ~= ignoreEntry and not entry.itemID
+        and type(entry.itemName) == "string" and entry.itemName:lower() == wanted then
+      return entry
+    end
+  end
+  return nil
+end
+
+function A:FindAutoMailEntryByItemID(itemID, ignoreEntry)
+  if not itemID then return nil end
+  for _, entry in ipairs(A:GetAutoMailEntries()) do
+    if entry ~= ignoreEntry and entry.itemID == itemID then return entry end
+  end
+  return nil
+end
+
+--[[
+  Applies typed text to a rule, and with it the one policy decision in the
+  addon that changes what a rule matches: a name the client recognizes as an
+  item makes the rule exact (and moves it to the Items table), anything else
+  makes it a name rule.
+
+  Lives here rather than in the options panel so it can be tested without a
+  frame. `resolveItemID` is the seam: the panel passes a function wrapping
+  C_Item.GetItemInfoInstant, tests pass a table lookup. It is called with the
+  trimmed text and may return an itemID and that item's canonical name.
+
+  Returns a status - "unchanged", "applied", or "duplicate" - plus, for
+  "duplicate", the rule already holding that item or name, and for "applied",
+  whether the rule changed kind and so moved between the two tables.
+
+  Deliberately not called on load or on migration: promoting stored rules
+  would silently narrow what a pre-4.9 setup mails.
+]]
+function A:ApplyRuleName(entry, text, resolveItemID)
+  text = A:Trim(text)
+  if text == (entry.itemName or "") then return "unchanged" end
+
+  local itemID, canonicalName
+  if text ~= "" and resolveItemID then
+    itemID, canonicalName = resolveItemID(text)
+  end
+
+  local duplicate = itemID and A:FindAutoMailEntryByItemID(itemID, entry)
+      or (not itemID) and A:FindAutoMailEntryByName(text, entry)
+  if duplicate then
+    return "duplicate", duplicate
+  end
+
+  local wasExact = entry.itemID ~= nil
+  entry.itemID = itemID
+  entry.itemName = (itemID and canonicalName ~= nil and canonicalName) or text
+  return "applied", nil, wasExact ~= (itemID ~= nil)
+end
+
 -- Two kinds of rule live in the same list, distinguished by whether the rule
 -- carries an itemID:
---   * itemID set (added by shift-clicking or dragging an item) - matches that
---     exact item and nothing else, so a rule for Linen Cloth doesn't also
---     sweep up Linen Cloth Bandages.
---   * itemID nil (typed by hand, or migrated from the pre-4.9 text list) -
+--   * itemID set (added by shift-clicking or dragging an item, or by typing a
+--     name the client resolves to a real item) - matches that exact item and
+--     nothing else, so a rule for Linen Cloth doesn't also sweep up Linen
+--     Cloth Bandages.
+--   * itemID nil (a name rule, or one migrated from the pre-4.9 text list) -
 --     keeps the original loose substring matching, so "Ore" still catches
 --     every ore and existing setups behave exactly as they did before.
 function A:GetAutoMailEntry(itemName, itemID)
