@@ -113,6 +113,93 @@ Testkit.Test("GetAutoMailEntry: a name rule does not match items whose names it 
   end
 end)
 
+-- Precedence used to be storage order, so which rule won depended on the
+-- order they happened to be added - and the options panel shows the two kinds
+-- in two separate tables, with no ordering shown and no way to reorder them.
+Testkit.Test("GetAutoMailEntry: an item rule beats a name rule that also matches", function()
+  local A = NewA()
+  A.db = { items = {
+    { itemName = "Cloth", recipient = "NameRuleAlt" },
+    { itemID = 2589, itemName = "Linen Cloth", recipient = "ItemRuleAlt" },
+  } }
+
+  local entry = A:GetAutoMailEntry("Linen Cloth", 2589)
+  Testkit.AssertEqual(entry.recipient, "ItemRuleAlt",
+      "the exact item rule must win even though the name rule is stored first")
+
+  -- The name rule must still do its job for everything else.
+  Testkit.AssertEqual(A:GetAutoMailEntry("Woolen Cloth", 2592).recipient, "NameRuleAlt")
+end)
+
+Testkit.Test("GetAutoMailEntry: precedence does not depend on the order rules were added", function()
+  local itemRule = { itemID = 2589, itemName = "Linen Cloth", recipient = "ItemRuleAlt" }
+  local nameRule = { itemName = "Cloth", recipient = "NameRuleAlt" }
+
+  for _, order in ipairs({ { nameRule, itemRule }, { itemRule, nameRule } }) do
+    local A = NewA()
+    A.db = { items = order }
+    Testkit.AssertEqual(A:GetAutoMailEntry("Linen Cloth", 2589).recipient, "ItemRuleAlt",
+        "both storage orders must resolve to the same rule")
+  end
+end)
+
+-- An itemID rule still must not match a different item just because an
+-- earlier name rule would have; the first pass only looks at IDs.
+Testkit.Test("GetAutoMailEntry: the item-rule pass does not match on name", function()
+  local A = NewA()
+  A.db = { items = { { itemID = 2589, itemName = "Linen Cloth", recipient = "ItemRuleAlt" } } }
+
+  Testkit.AssertTrue(A:GetAutoMailEntry("Linen Cloth", 9999) == nil,
+      "a different item sharing the rule's name must not match an itemID rule")
+end)
+
+-- An uncached item has no name at all; the itemID pass has to still work.
+Testkit.Test("GetAutoMailEntry: an item rule matches with no item name available", function()
+  local A = NewA()
+  A.db = { items = {
+    { itemName = "Cloth", recipient = "NameRuleAlt" },
+    { itemID = 2589, itemName = "Linen Cloth", recipient = "ItemRuleAlt" },
+  } }
+
+  Testkit.AssertEqual(A:GetAutoMailEntry(nil, 2589).recipient, "ItemRuleAlt")
+  Testkit.AssertTrue(A:GetAutoMailEntry(nil, 9999) == nil,
+      "with no name there is nothing for a name rule to match against")
+end)
+
+--[[
+  Answers "is this profile configured enough to run?" for a setup with no
+  default Recipient. The send guard used to look only at the two recipient
+  boxes, so a profile where every rule named its own recipient was refused
+  before the queue was ever built.
+]]
+Testkit.Test("HasRuleRecipient finds a rule carrying its own recipient", function()
+  local A = NewA()
+  A.db = { items = {
+    { itemID = 2589, itemName = "Linen Cloth", recipient = "" },
+    { itemName = "Ore", recipient = "Bankalt" },
+  } }
+
+  Testkit.AssertEqual(A:HasRuleRecipient(), true)
+end)
+
+Testkit.Test("HasRuleRecipient is false when no rule names a recipient", function()
+  local A = NewA()
+  A.db = { items = {
+    { itemID = 2589, itemName = "Linen Cloth", recipient = "" },
+    { itemName = "Ore", recipient = "" },
+  } }
+
+  Testkit.AssertEqual(A:HasRuleRecipient(), false,
+      "rules that all fall back to the default can't run without one")
+end)
+
+Testkit.Test("HasRuleRecipient is false for an empty rule list", function()
+  local A = NewA()
+  A.db = { items = {} }
+
+  Testkit.AssertEqual(A:HasRuleRecipient(), false)
+end)
+
 Testkit.Test("SplitAutoMailEntries separates itemID rules from name rules", function()
   local A = NewA()
   local linen = { itemID = 2589, itemName = "Linen Cloth", recipient = "" }

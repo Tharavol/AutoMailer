@@ -13,6 +13,8 @@
 
 local _, A = ...
 
+local L = A.L
+
 -- Registers the main canvas panel plus any subcategory pages hanging off it.
 -- Registration reparents the canvas frames, so this runs once both panels are
 -- fully built rather than at frame-creation time.
@@ -86,7 +88,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
   local function UpdateRecipientHint(row)
     local isEmpty = A:Trim(row.Recipient:GetText()) == ""
     local fallback = A:Trim(A.db.recipient)
-    row.RecipientHint:SetText(fallback ~= "" and fallback or "no default set")
+    row.RecipientHint:SetText(fallback ~= "" and fallback or L["no default set"])
     row.RecipientHint:SetShown(isEmpty and not row.Recipient.hasFocus)
   end
 
@@ -134,7 +136,8 @@ local function CreateItemTable(optionsPanel, anchorTo)
   local function AddItemByID(itemID, fallbackName)
     if not itemID then return false end
     if A:FindAutoMailEntryByItemID(itemID) then
-      A:Print((C_Item.GetItemInfo(itemID) or fallbackName or "That item") .. " is already in your list.")
+      A:Print(string.format(L["%s is already in your list."],
+          C_Item.GetItemInfo(itemID) or fallbackName or L["That item"]))
       return false
     end
     tinsert(A:GetAutoMailEntries(), {
@@ -167,7 +170,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     local itemID = TakeCursorItem()
     if not itemID then return end
     if A:FindAutoMailEntryByItemID(itemID, row.entry) then
-      A:Print("That item is already in your list.")
+      A:Print(string.format(L["%s is already in your list."], L["That item"]))
       return
     end
     row.entry.itemID = itemID
@@ -212,8 +215,8 @@ local function CreateItemTable(optionsPanel, anchorTo)
     if status == "unchanged" then return end
 
     if status == "duplicate" then
-      A:Print((duplicate.itemName ~= "" and duplicate.itemName or "That item")
-          .. " is already in your list.")
+      A:Print(string.format(L["%s is already in your list."],
+          duplicate.itemName ~= "" and duplicate.itemName or L["That item"]))
       ResetName(row)
       return
     end
@@ -228,6 +231,31 @@ local function CreateItemTable(optionsPanel, anchorTo)
     UpdateRecipientHint(row)
   end
 
+  --[[
+    Moves focus to another field of the same rule, for tabbing between the
+    name and recipient boxes.
+
+    Deferred a frame, and located by entry rather than by frame, because
+    leaving a field commits it - and committing a name can rebuild both lists
+    (a name the client resolves to a real item turns that rule into an item
+    rule and moves it to the other table). The row frame is recycled by that
+    rebuild, so a reference captured before it can easily be pointing at a
+    different rule by the time focus lands. Same reason the "Add Name Rule"
+    button defers its SetFocus.
+  ]]
+  local function FocusEntryField(entry, key)
+    if not entry then return end
+    C_Timer.After(0, function()
+      for _, list in ipairs({ itemList, nameList }) do
+        local frame = list.scrollBox.FindFrame and list.scrollBox:FindFrame(entry)
+        if frame and frame[key] then
+          frame[key]:SetFocus()
+          return
+        end
+      end
+    end)
+  end
+
   -- Scripts are wired once per frame, not once per rule: ScrollBox recycles
   -- row frames, so handlers read row.entry at call time rather than closing
   -- over whichever rule the row happened to show when it was created.
@@ -240,8 +268,24 @@ local function CreateItemTable(optionsPanel, anchorTo)
       self:ClearFocus()
     end)
     row.Name:SetScript("OnEditFocusLost", function() CommitName(row) end)
+    -- Tab goes to this rule's recipient; shift-tab just leaves the field,
+    -- since nothing precedes the name in a row.
+    row.Name:SetScript("OnTabPressed", function(self)
+      local entry = row.entry
+      self:ClearFocus()
+      if not IsShiftKeyDown() then
+        FocusEntryField(entry, "Recipient")
+      end
+    end)
 
     row.Recipient:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    row.Recipient:SetScript("OnTabPressed", function(self)
+      local entry = row.entry
+      self:ClearFocus()
+      if IsShiftKeyDown() then
+        FocusEntryField(entry, "Name")
+      end
+    end)
     row.Recipient:SetScript("OnEscapePressed", function(self)
       self:SetText(row.entry and row.entry.recipient or "")
       self:ClearFocus()
@@ -273,7 +317,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     row.Delete:SetScript("OnClick", function() DeleteRow(row) end)
     row.Delete:SetScript("OnEnter", function(self)
       GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:SetText("Remove this rule")
+      GameTooltip:SetText(L["Remove this rule"])
       GameTooltip:Show()
     end)
     row.Delete:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -320,14 +364,14 @@ local function CreateItemTable(optionsPanel, anchorTo)
     local header = optionsPanel:CreateFontString(nil, "OVERLAY")
     header:SetPoint("TOPLEFT", spec.anchorTo, "BOTTOMLEFT", spec.anchorX, spec.anchorY)
     header:SetFontObject("GameFontNormal")
-    header:SetText(spec.header)
+    header:SetText(L[spec.header])
 
     local instructions = optionsPanel:CreateFontString(nil, "OVERLAY")
     instructions:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -4)
     instructions:SetFontObject("GameFontDisableSmall")
     instructions:SetJustifyH("LEFT")
     instructions:SetWidth(LIST_WIDTH)
-    instructions:SetText(spec.instructions)
+    instructions:SetText(L[spec.instructions])
 
     -- Column labels sit at the same x offsets as the matching widgets in the
     -- row template so they line up with the rows below. Both templates put
@@ -336,12 +380,12 @@ local function CreateItemTable(optionsPanel, anchorTo)
     local itemColumn = optionsPanel:CreateFontString(nil, "OVERLAY")
     itemColumn:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", spec.columnInset, -8)
     itemColumn:SetFontObject("GameFontNormalSmall")
-    itemColumn:SetText(spec.itemColumn)
+    itemColumn:SetText(L[spec.itemColumn])
 
     local recipientColumn = optionsPanel:CreateFontString(nil, "OVERLAY")
     recipientColumn:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", 158, -8)
     recipientColumn:SetFontObject("GameFontNormalSmall")
-    recipientColumn:SetText("Recipient")
+    recipientColumn:SetText(L["Recipient"])
 
     local scrollBox = CreateFrame("Frame", nil, optionsPanel, "WowScrollBoxList")
     scrollBox:SetSize(LIST_WIDTH, spec.height)
@@ -364,7 +408,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     emptyText:SetWidth(LIST_WIDTH - 30)
     emptyText:SetFontObject("GameFontDisableSmall")
     emptyText:SetJustifyH("CENTER")
-    emptyText:SetText(spec.emptyText)
+    emptyText:SetText(L[spec.emptyText])
 
     local view = CreateScrollBoxListLinearView()
     view:SetElementExtent(ROW_HEIGHT)
@@ -379,7 +423,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
 
     local button = CreateFrame("Button", nil, optionsPanel, "UIPanelButtonTemplate")
     button:SetSize(spec.buttonWidth, 22)
-    button:SetText(spec.buttonText)
+    button:SetText(L[spec.buttonText])
     button:SetPoint("TOPLEFT", backdrop, "BOTTOMLEFT", 4, -6)
     button:SetScript("OnReceiveDrag", AddFromCursor)
     button:SetScript("OnClick", spec.onClick)
@@ -415,8 +459,8 @@ local function CreateItemTable(optionsPanel, anchorTo)
     buttonWidth = 110,
     onClick = function()
       if AddFromCursor() then return end
-      A:Print("Pick up or shift-click an item in your bags to add it, "
-          .. "or use Add Name Rule to match items by name.")
+      A:Print(L["Pick up or shift-click an item in your bags to add it, "
+          .. "or use Add Name Rule to match items by name."])
     end,
   })
 
@@ -505,7 +549,7 @@ local function CreateCheckbox(parent, label, getter, setter)
   local text = checkbox:CreateFontString(nil, "OVERLAY")
   text:SetPoint("LEFT", checkbox, "RIGHT", 5, 0)
   text:SetFontObject("GameFontNormal")
-  text:SetText(label)
+  text:SetText(L[label])
   checkbox.Label = text
 
   checkbox:SetScript("OnClick", function(self)
@@ -558,7 +602,7 @@ end
 local function CreateHeader(parent, label, anchorTo, xOff, yOff, fontObject)
   local header = parent:CreateFontString(nil, "OVERLAY")
   header:SetFontObject(fontObject or "GameFontNormal")
-  header:SetText(label)
+  header:SetText(L[label])
   if anchorTo then
     header:SetPoint("TOPLEFT", anchorTo, "BOTTOMLEFT", xOff or 0, yOff or -12)
   end
@@ -577,7 +621,7 @@ local function CreateMainPanel()
 
   local title = panel:CreateFontString(nil, "OVERLAY")
   title:SetFontObject("GameFontNormalHuge")
-  title:SetText("AutoMailer Options")
+  title:SetText(L["AutoMailer Options"])
   title:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -10)
 
   local versionText = panel:CreateFontString(nil, "OVERLAY")
@@ -619,8 +663,8 @@ local function CreateMainPanel()
   moreSettings:SetFontObject("GameFontDisableSmall")
   moreSettings:SetJustifyH("LEFT")
   moreSettings:SetWidth(240)
-  moreSettings:SetText("BoE, reagent, gold and general settings live on the "
-      .. "\"Filters & Automation\" page under this one.")
+  moreSettings:SetText(L["BoE, reagent, gold and general settings live on the "
+      .. "\"Filters & Automation\" page under this one."])
   moreSettings:SetPoint("TOPLEFT", globalProfileCB, "BOTTOMLEFT", 4, -16)
 
   panel.RefreshValues = function(self)
@@ -638,7 +682,7 @@ end
 
 local function CreateFiltersPanel()
   local panel = CreateFrame("Frame", "AutoMailerOptionsFilters", UIParent)
-  panel.name = "Filters & Automation"
+  panel.name = L["Filters & Automation"]
   local refreshers = {}
 
   local function Track(widget)
@@ -648,7 +692,7 @@ local function CreateFiltersPanel()
 
   local title = panel:CreateFontString(nil, "OVERLAY")
   title:SetFontObject("GameFontNormalHuge")
-  title:SetText("Filters & Automation")
+  title:SetText(L["Filters & Automation"])
   title:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -10)
 
   -- Bind-on-Equip

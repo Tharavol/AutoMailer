@@ -18,28 +18,54 @@
 
 local _, A = ...
 
+local L = A.L
+
 A.sendingMail = false
 A.awaitConfirmSent = false
 A.mailQueue = nil
 A.mailQueueIndex = 0
 A.mailTriggerButton = nil
 
+--[[
+  How long to wait for MAIL_SUCCESS or MAIL_FAILED after calling SendMail
+  before giving up on the run.
+
+  Every batch ends by handing off to the server and waiting for one of those
+  two events to drive the next one. If neither arrives, nothing else moves the
+  state machine: sendingMail stays true, every later click on the trigger
+  button answers "A mail send is already in progress.", and only closing the
+  mailbox clears it. awaitConfirmSent existed to catch exactly this and was
+  never read by anything - this is the missing half.
+
+  Generous on purpose. It is a stuck-run backstop, not a latency budget: a
+  slow server round-trip must never trip it, because aborting a run that is
+  merely slow would be worse than the stall it protects against.
+]]
+local SEND_CONFIRM_TIMEOUT = 20
+
+-- Bumped every time a run starts or a batch is handed off, so a timer that
+-- fires late can tell whether it is still guarding the send it was armed for.
+-- Without it, a watchdog armed for batch 3 could abort batch 4 after batch 3
+-- confirmed normally.
+A.sendGeneration = 0
+
 local function BuildConfirmationText(summary)
   local lines = {}
 
   if summary.itemCount > 0 then
-    tinsert(lines, string.format("%d item(s) in %d mail(s) to: %s",
+    tinsert(lines, string.format(L["%d item(s) in %d mail(s) to: %s"],
         summary.itemCount, summary.mailCount, table.concat(summary.recipients, ", ")))
   end
 
   if summary.goldCopper > 0 then
     tinsert(lines, string.format(
-        "Roughly %s to %s.\n" ..
-        "(The exact amount is worked out at send time so postage lands you on your threshold.)",
+        L["Roughly %s to %s.\n" ..
+        "(The exact amount is worked out at send time so postage lands you on your threshold.)"],
         GetCoinTextureString(summary.goldCopper), summary.goldRecipient))
   end
 
-  return "AutoMailer is about to send:\n\n" .. table.concat(lines, "\n\n") .. "\n\nProceed?"
+  return L["AutoMailer is about to send:"] .. "\n\n" .. table.concat(lines, "\n\n")
+      .. "\n\n" .. L["Proceed?"]
 end
 
 StaticPopupDialogs["AUTOMAILER_CONFIRM_SEND"] = {
@@ -50,7 +76,7 @@ StaticPopupDialogs["AUTOMAILER_CONFIRM_SEND"] = {
     A:BeginMailRun(self.data)
   end,
   OnCancel = function()
-    A:Print("Send cancelled.")
+    A:Print(L["Send cancelled."])
   end,
   timeout = 0,
   whileDead = true,
@@ -66,6 +92,27 @@ function A:ResetMailSendState()
   A.awaitConfirmSent = false
   A.mailQueue = nil
   A.mailQueueIndex = 0
+  -- Invalidates any watchdog still pending, so it can't fire into the next run.
+  A.sendGeneration = A.sendGeneration + 1
+end
+
+-- Arms the stuck-run backstop for the batch just handed to SendMail. Fires
+-- only if that same batch is still unconfirmed when the timeout elapses:
+-- ResetMailSendState and every subsequent hand-off bump the generation, so a
+-- stale timer recognizes itself and does nothing.
+function A:ArmSendWatchdog()
+  A.sendGeneration = A.sendGeneration + 1
+  local generation = A.sendGeneration
+
+  C_Timer.After(SEND_CONFIRM_TIMEOUT, function()
+    if not A.sendingMail then return end
+    if A.sendGeneration ~= generation then return end
+    if not A.awaitConfirmSent then return end
+
+    A:Log("Send watchdog fired after", SEND_CONFIRM_TIMEOUT, "seconds with no MAIL_SUCCESS or MAIL_FAILED")
+    A:Print(L["No response from the server for the last mail; stopping AutoMailer run."])
+    A:ResetMailSendState()
+  end)
 end
 
 -- Creates the button if it doesn't exist yet and (re)anchors it to the mail
@@ -81,7 +128,7 @@ function A:EnsureMailTriggerButton()
   if not A.mailTriggerButton then
     local button = CreateFrame("Button", "AutoMailerMailButton", UIParent, "UIPanelButtonTemplate")
     button:SetSize(140, 24)
-    button:SetText("Send Mail")
+    button:SetText(L["Send Mail"])
     button:SetScript("OnClick", function()
       A:StartMailSend()
     end)
@@ -127,7 +174,7 @@ end
 
 function A:StartMailSend()
   if A.sendingMail then
-    A:Print("A mail send is already in progress.")
+    A:Print(L["A mail send is already in progress."])
     return
   end
 
@@ -136,13 +183,17 @@ function A:StartMailSend()
   local recipient = A.db.recipient or ""
   local boeRecipient = A.db.boeRecipient or ""
 
-  if #recipient == 0 and #boeRecipient == 0 then
-    A:Print("No recipient configured.")
+  -- Rules can name their own recipient, so a blank default is not on its own
+  -- an unconfigured profile. This guard used to check only the two boxes on
+  -- the panels and refuse to build the queue, which meant a perfectly valid
+  -- rules-only setup never got the chance to match anything.
+  if #recipient == 0 and #boeRecipient == 0 and not A:HasRuleRecipient() then
+    A:Print(L["No recipient configured."])
     return
   end
 
   if not A:ShowSendMailTab() then
-    A:Print("Mail frame is not available.")
+    A:Print(L["Mail frame is not available."])
     return
   end
 
@@ -150,7 +201,7 @@ function A:StartMailSend()
   A:Log("BuildMailQueue produced", #queue, "batch(es) covering", itemCount, "item(s)")
 
   if #queue == 0 then
-    A:Print("No matching items found in your bags to mail.")
+    A:Print(L["No matching items found in your bags to mail."])
     return
   end
 
@@ -170,13 +221,13 @@ end
 function A:BeginMailRun(queue)
   if not queue or #queue == 0 then return end
   if A.sendingMail then
-    A:Print("A mail send is already in progress.")
+    A:Print(L["A mail send is already in progress."])
     return
   end
 
   -- No "v" prefix here: the TOC version comes from the release tag, which
   -- already carries one.
-  A:Print("Starting AutoMailer send run (" .. A:GetVersion() .. ")")
+  A:Print(string.format(L["Starting AutoMailer send run (%s)"], A:GetVersion()))
 
   A.mailQueue = queue
   A.mailQueueIndex = 0
@@ -196,7 +247,7 @@ function A:ProcessMailQueue()
   local batch = A.mailQueue[A.mailQueueIndex]
 
   if not batch then
-    A:Print("AutoMailer finished: sent " .. (A.mailQueueIndex - 1) .. " mail(s).")
+    A:Print(string.format(L["AutoMailer finished: sent %d mail(s)."], A.mailQueueIndex - 1))
     A:ResetMailSendState()
     return
   end
@@ -252,13 +303,13 @@ end
 
 function A:SendMailBatch(batch)
   if not MailFrame or not MailFrame:IsShown() then
-    A:Print("Mail frame is not open; stopping AutoMailer.")
+    A:Print(L["Mail frame is not open; stopping AutoMailer."])
     A:ResetMailSendState()
     return
   end
 
   if not A:ShowSendMailTab() then
-    A:Print("Could not switch to the Send Mail tab; stopping AutoMailer.")
+    A:Print(L["Could not switch to the Send Mail tab; stopping AutoMailer."])
     A:ResetMailSendState()
     return
   end
@@ -313,7 +364,7 @@ function A:SendMailBatch(batch)
   end
 
   if attachedCount == 0 and money == 0 then
-    A:Print("Could not attach any items for " .. batch.recipient .. "; skipping this batch.")
+    A:Print(string.format(L["Could not attach any items for %s; skipping this batch."], batch.recipient))
     C_Timer.After(0.2, function()
       A:ProcessMailQueue()
     end)
@@ -329,12 +380,14 @@ function A:SendMailBatch(batch)
   -- before letting the next batch (e.g. an excess-gold batch reading GetMoney()
   -- to compute its amount) proceed. See A:OnMailSuccess for why.
   A.moneyBeforeSend = A:GetMoney()
+  A:ArmSendWatchdog()
   SendMail(batch.recipient, subject, "")
 
   if money > 0 then
-    A:Print("Sent " .. attachedCount .. " item(s) and " .. GetCoinTextureString(money) .. " to " .. batch.recipient)
+    A:Print(string.format(L["Sent %d item(s) and %s to %s"],
+        attachedCount, GetCoinTextureString(money), batch.recipient))
   else
-    A:Print("Sent " .. attachedCount .. " item(s) to " .. batch.recipient)
+    A:Print(string.format(L["Sent %d item(s) to %s"], attachedCount, batch.recipient))
   end
 end
 
@@ -370,7 +423,7 @@ function A:OnMailFailed()
   A:Log("MAIL_FAILED")
   A.awaitConfirmSent = false
   if A.sendingMail then
-    A:Print("A mail failed to send; stopping AutoMailer run.")
+    A:Print(L["A mail failed to send; stopping AutoMailer run."])
     A:ResetMailSendState()
   end
 end

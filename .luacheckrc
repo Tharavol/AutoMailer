@@ -67,6 +67,9 @@ read_globals = {
 
     -- Money / misc
     "GetMoney", "GetCoinTextureString", "UnitLevel", "IsShiftKeyDown", "UnitName",
+
+    -- Localization
+    "GetLocale",
 }
 
 -- The offline test harness installs WoW stubs into _G on purpose, and falls

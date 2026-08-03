@@ -10,8 +10,10 @@
     lua tests/run_tests.lua
 ]]
 
+require("tests.test_locale")
 require("tests.test_profile")
 require("tests.test_mailqueue")
+require("tests.test_send")
 
 local Testkit = require("tests.testkit")
 local ok = Testkit.RunAll()
