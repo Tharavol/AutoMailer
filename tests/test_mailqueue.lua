@@ -60,9 +60,10 @@ local function NewFakeAddon(bagContents, opts)
     return recipient == (opts.currentCharacter or "CurrentToon")
   end
 
-  -- A:IsDebugLogging reads this global, and the run summary only collects skip
+  -- A:IsDebugLogging reads A.meta, and the run summary only collects skip
   -- reasons when it is on.
   _G.AutoMailer = { debugLogging = opts.debugLogging or false }
+  A.meta = AutoMailer
 
   A.logged = {}
   function A:Log(...) tinsert(A.logged, table.concat({ ... }, " ")) end

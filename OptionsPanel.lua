@@ -648,9 +648,9 @@ local function CreateMainPanel()
   local itemsBG = CreateItemTable(panel, recipientBox)
 
   local globalProfileCB = CreateCheckbox(panel, "Use one global profile for all characters",
-      function() return AutoMailer.useGlobalProfile end,
+      function() return A.meta.useGlobalProfile end,
       function(value)
-        AutoMailer.useGlobalProfile = value
+        A.meta.useGlobalProfile = value
         A:RefreshActiveProfile()
         -- Switching profiles swaps the table every control reads from, so
         -- both pages have to resync, not just this one.
@@ -785,18 +785,18 @@ local function CreateFiltersPanel()
   local generalHeader = CreateHeader(panel, "General", confirmGoldCB, 0, -16, "GameFontNormalLarge")
 
   local autoSendCB = Track(CreateCheckbox(panel, "Shift-clicking a mailbox starts a send run",
-      function() return AutoMailer.autoSendOnShiftOpen end,
-      function(value) AutoMailer.autoSendOnShiftOpen = value end))
+      function() return A.meta.autoSendOnShiftOpen end,
+      function(value) A.meta.autoSendOnShiftOpen = value end))
   autoSendCB:SetPoint("TOPLEFT", generalHeader, "BOTTOMLEFT", 0, -6)
 
   local debugCB = Track(CreateCheckbox(panel, "Enable debug logging",
-      function() return AutoMailer.debugLogging end,
-      function(value) AutoMailer.debugLogging = value end))
+      function() return A.meta.debugLogging end,
+      function(value) A.meta.debugLogging = value end))
   debugCB:SetPoint("TOPLEFT", autoSendCB, "BOTTOMLEFT", 0, 0)
 
   local loginCB = Track(CreateCheckbox(panel, "Display login message",
-      function() return AutoMailer.loginMessage end,
-      function(value) AutoMailer.loginMessage = value end))
+      function() return A.meta.loginMessage end,
+      function(value) A.meta.loginMessage = value end))
   loginCB:SetPoint("TOPLEFT", debugCB, "BOTTOMLEFT", 0, 0)
 
   panel.RefreshValues = function()

@@ -53,7 +53,7 @@ function E:ADDON_LOADED(name)
 end
 
 function E:PLAYER_ENTERING_WORLD(login, reloadUI)
-  if (login or reloadUI) and AutoMailer.loginMessage and A.loaded then
+  if (login or reloadUI) and A.meta.loginMessage and A.loaded then
     -- No "v" prefix: the TOC version comes from the release tag, which already
     -- carries one (same reason as Send.lua's run banner).
     print(A.addonName .. string.format(L["%s loaded"], A:GetVersion()))
@@ -92,7 +92,7 @@ function E:MAIL_SHOW(attempt)
   -- Shift is a heavily-used modifier and this kicks off a full run - including
   -- mailing gold - before you've had a chance to look at anything, so it's now
   -- off unless explicitly enabled.
-  if IsShiftKeyDown() and AutoMailer.autoSendOnShiftOpen then
+  if IsShiftKeyDown() and A.meta.autoSendOnShiftOpen then
     A:Log("MAIL_SHOW with shift held; auto-starting send")
     A:StartMailSend()
   end
@@ -163,11 +163,11 @@ function A:SlashCommand(args)
   if command == "list" then
     PrintSentSummary()
   elseif command == "debug" then
-    AutoMailer.debugLogging = not AutoMailer.debugLogging
+    A.meta.debugLogging = not A.meta.debugLogging
     -- Two whole sentences rather than a stem plus an "enabled"/"disabled"
     -- fragment: languages that inflect the adjective can't translate the
     -- fragment without seeing the rest of the sentence.
-    A:Print(AutoMailer.debugLogging and L["Debug logging enabled."] or L["Debug logging disabled."])
+    A:Print(A.meta.debugLogging and L["Debug logging enabled."] or L["Debug logging disabled."])
   else
     OpenOptions()
   end

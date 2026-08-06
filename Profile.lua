@@ -88,31 +88,36 @@ function A:SanitizeItemEntries(list)
   return cleaned
 end
 
+-- Resets any field on t whose stored type doesn't match its default's type -
+-- type(default) doubles as both the expected type and the fallback value.
+function A:RepairFieldTypes(t, defaults)
+  for key, default in pairs(defaults) do
+    if type(t[key]) ~= type(default) then
+      t[key] = default
+    end
+  end
+end
+
 function A:SanitizeProfile(t)
+  -- items is special-cased: its default type (table) doesn't distinguish the
+  -- legacy string format from a corrupt value, so it needs its own handling
+  -- before the generic pass below can compare types.
   if type(t.items) == "string" then
     t.items = A:MigrateItemsString(t.items)
-  elseif type(t.items) ~= "table" then
-    t.items = {}
-  else
+  elseif type(t.items) == "table" then
     t.items = A:SanitizeItemEntries(t.items)
+  else
+    t.items = {}
   end
-  if type(t.recipient) ~= "string" then t.recipient = "" end
-  if type(t.boeRecipient) ~= "string" then t.boeRecipient = "" end
-  if type(t.boeRarityLimit) ~= "number" then t.boeRarityLimit = 4 end
-  if type(t.SendBOE) ~= "boolean" then t.SendBOE = false end
-  if type(t.LimitBoeLevel) ~= "boolean" then t.LimitBoeLevel = false end
-  if type(t.limitBoeRarity) ~= "boolean" then t.limitBoeRarity = false end
-  if type(t.SendReagents) ~= "boolean" then t.SendReagents = false end
-  if type(t.sendExcessGold) ~= "boolean" then t.sendExcessGold = false end
-  if type(t.goldThreshold) ~= "number" then t.goldThreshold = 50000 end
-  if type(t.confirmGoldSends) ~= "boolean" then t.confirmGoldSends = false end
+  A:RepairFieldTypes(t, A:DefaultProfile())
 end
 
 -- Points at whichever profile table (per-character AutoMailer or global
 -- AutoMailerGlobal) is currently active. All mailing-profile reads/writes
 -- should go through A.db; meta prefs (logging, login message, the toggle
--- itself) always read/write AutoMailer directly.
+-- itself) always read/write A.meta, which is AutoMailer itself.
 function A:RefreshActiveProfile()
+  A.meta = AutoMailer
   A.db = AutoMailer.useGlobalProfile and AutoMailerGlobal or AutoMailer
 end
 
@@ -144,11 +149,7 @@ function A:InitializeSavedVariables()
   -- two got to disagree: this pass repaired useGlobalProfile to false while
   -- DefaultMeta gave fresh installs true, so a corrupted value didn't just get
   -- fixed, it silently switched the character onto a different profile.
-  for key, default in pairs(A:DefaultMeta()) do
-    if type(AutoMailer[key]) ~= type(default) then
-      AutoMailer[key] = default
-    end
-  end
+  A:RepairFieldTypes(AutoMailer, A:DefaultMeta())
 
   A:SanitizeProfile(AutoMailer)
   A:SanitizeProfile(AutoMailerGlobal)

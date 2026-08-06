@@ -37,7 +37,7 @@ end
 -- reasons while it scans, which is wasted work when nobody will read it.
 -- Callers that only format strings should just call A:Log and let it decide.
 function A:IsDebugLogging()
-  return (AutoMailer and AutoMailer.debugLogging) and true or false
+  return (A.meta and A.meta.debugLogging) and true or false
 end
 
 function A:Log(...)

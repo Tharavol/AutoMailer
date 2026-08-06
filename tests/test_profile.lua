@@ -108,6 +108,19 @@ Testkit.Test("InitializeSavedVariables leaves a valid meta pref alone", function
   _G.AutoMailer, _G.AutoMailerGlobal = nil, nil
 end)
 
+Testkit.Test("RefreshActiveProfile points A.meta at AutoMailer regardless of which profile is active", function()
+  local A = NewA()
+  _G.AutoMailer = { useGlobalProfile = true }
+  _G.AutoMailerGlobal = {}
+
+  A:InitializeSavedVariables()
+
+  Testkit.AssertTrue(A.meta == AutoMailer, "A.meta must always be the per-character table")
+  Testkit.AssertTrue(A.db == AutoMailerGlobal, "A.db follows useGlobalProfile as before")
+
+  _G.AutoMailer, _G.AutoMailerGlobal = nil, nil
+end)
+
 Testkit.Test("GetAutoMailEntry: an itemID rule matches only that exact item", function()
   local A = NewA()
   A.db = { items = { { itemID = 2589, itemName = "Linen Cloth", recipient = "" } } }
