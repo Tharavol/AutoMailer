@@ -2,6 +2,15 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [5.4] - 2026-08-06
+
+### Internal
+- `A:SanitizeProfile` is now driven off `A:DefaultProfile` rather than restating each field's type and default by hand, via a new `A:RepairFieldTypes` helper that also replaces the meta-preference repair pass's own hand-rolled loop in `A:InitializeSavedVariables` ([#16](https://github.com/Tharavol/AutoMailer/issues/16)).
+- Meta preferences (`loginMessage`, `debugLogging`, `useGlobalProfile`, `autoSendOnShiftOpen`) now go through a new `A.meta`, matching the indirection `A.db` already gave the mailing profile, rather than reading the `AutoMailer` global directly across three files ([#17](https://github.com/Tharavol/AutoMailer/issues/17)).
+- **The test suite now checks `AutoMailer.toc` against the files on disk**, both directions: every root-level `.lua` file is listed, and every listed file exists ([#20](https://github.com/Tharavol/AutoMailer/issues/20)). A module left off the manifest previously just failed to load in-game without the suite noticing, since it loads modules by explicit path rather than reading the TOC.
+- `fixes.md`, the subject of [#21](https://github.com/Tharavol/AutoMailer/issues/21), turned out to be gitignored and never part of the repository; closed as already resolved rather than archived.
+- The suite is up from 81 tests to 83.
+
 ## [5.3] - 2026-08-03
 
 ### Fixed
