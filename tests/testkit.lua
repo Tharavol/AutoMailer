@@ -74,6 +74,35 @@ function Testkit.NewAddonTable()
   return {}
 end
 
+--[[ TOC manifest checking - see tests/test_toc.lua ]]
+
+-- The .lua entries a TOC file lists, in load order. Matches a whole trimmed
+-- line that is exactly a filename (letters/digits/underscore/dot) ending in
+-- .lua, so comments, the interface/title keywords and non-Lua files (the
+-- XML template) are ignored.
+function Testkit.ParseTocLuaFiles(path)
+  local files = {}
+  for line in io.lines(path) do
+    local file = line:match("^%s*([%w_.]+%.lua)%s*$")
+    if file then tinsert(files, file) end
+  end
+  return files
+end
+
+-- The *.lua files actually sitting in a directory, via `ls` rather than a
+-- filesystem library the test environment may not have installed.
+function Testkit.ListLuaFiles(dir)
+  local files = {}
+  local pipe = io.popen("ls " .. dir .. "/*.lua")
+  if pipe then
+    for line in pipe:lines() do
+      tinsert(files, line:match("([^/\\]+)$"))
+    end
+    pipe:close()
+  end
+  return files
+end
+
 --[[ tiny assertion-based test runner ]]
 
 local registered = {}
