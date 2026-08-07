@@ -2,6 +2,17 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [6.0] - 2026-08-07
+
+### Changed
+- **The addon is now titled "AutoMailer Continued"** in the client's AddOns list ([#8](https://github.com/Tharavol/AutoMailer/issues/8)), reflecting that this is a continuation of an addon whose original CurseForge listing is no longer maintained. Nothing else about its identity changed: the shipped folder, slash commands, chat output and SavedVariables are all still `AutoMailer`, so an existing install upgrades in place with no reconfiguration.
+
+### Internal
+- **Saved profiles now carry a `schemaVersion` and migrate through an ordered list of steps** rather than being detected by sniffing the shape of the stored data ([#18](https://github.com/Tharavol/AutoMailer/issues/18)). The pre-4.9 string-item-list migration becomes step 1 under the new scheme; some future changes (a renamed field holding the same type) couldn't have been detected by shape-sniffing at all, which is what this was for.
+- **Three profile fields were renamed to match the rest of the (camelCase) schema**: `SendBOE` → `sendBoe`, `LimitBoeLevel` → `limitBoeLevel`, `SendReagents` → `sendReagents` ([#19](https://github.com/Tharavol/AutoMailer/issues/19)). Riding the schemaVersion migration as step 2 is what lets an existing profile's settings carry forward under the new names instead of silently resetting to defaults.
+- Determined that no addon-readable API exposes the account's own character roster for the mail recipient box; [#26](https://github.com/Tharavol/AutoMailer/issues/26) will build on a saved-variable roster accumulated at login instead ([#76](https://github.com/Tharavol/AutoMailer/issues/76), research only, no code changes).
+- The suite is up from 83 tests to 88.
+
 ## [5.5] - 2026-08-06
 
 ### Internal
