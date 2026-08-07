@@ -197,7 +197,7 @@ Testkit.Test("BuildMailQueue honors a BoE rarity limit", function()
       ["item:epic"] = { name = "Epic BoE", itemID = 2, bindType = 2, rarity = 4 },
     },
   })
-  A.db.SendBOE = true
+  A.db.sendBoe = true
   A.db.limitBoeRarity = true
   A.db.boeRarityLimit = 3 -- Rare and below
 
@@ -212,7 +212,7 @@ Testkit.Test("BuildMailQueue mails everything non-soulbound in the reagent bag w
   }, {
     itemInfoByLink = { ["item:reagent"] = { name = "Some Reagent", itemID = 99, bindType = 0 } },
   })
-  A.db.SendReagents = true
+  A.db.sendReagents = true
 
   local batches, itemCount = A:BuildMailQueue("DefaultRecipient", "")
   Testkit.AssertEqual(itemCount, 1)
@@ -296,7 +296,7 @@ Testkit.Test("BuildMailQueue reports rather than silently skipping an uncached B
   }, {
     itemInfoByLink = { ["item:boe"] = { itemID = 77, uncached = true } },
   })
-  A.db.SendBOE = true
+  A.db.sendBoe = true
 
   local logged = {}
   function A:Log(...) tinsert(logged, table.concat({ ... }, " ")) end
@@ -318,7 +318,7 @@ Testkit.Test("BuildMailQueue lets a reagent-bag rule's own recipient win over th
   }, {
     itemInfoByLink = { ["item:reagent"] = { name = "Some Reagent", itemID = 99, bindType = 0 } },
   })
-  A.db.SendReagents = true
+  A.db.sendReagents = true
   tinsert(A:GetAutoMailEntries(), { itemID = 99, itemName = "Some Reagent", recipient = "ReagentAlt" })
 
   local batches = A:BuildMailQueue("DefaultRecipient", "")
@@ -326,19 +326,19 @@ Testkit.Test("BuildMailQueue lets a reagent-bag rule's own recipient win over th
 end)
 
 --[[
-  The reagent bag used to be scanned only when SendReagents was on, so an
+  The reagent bag used to be scanned only when sendReagents was on, so an
   explicit rule for an item the game files in there never matched. Retail
   auto-sorts cloth, ore and herbs into that bag, so this hit exactly the items
   people most want rules for - and silently, since an unscanned bag produces
   nothing to log.
 ]]
-Testkit.Test("BuildMailQueue applies item rules in the reagent bag with SendReagents off", function()
+Testkit.Test("BuildMailQueue applies item rules in the reagent bag with sendReagents off", function()
   local A = NewFakeAddon({
     [5] = { { itemLink = "item:2589", locked = false, soulbound = false } },
   }, {
     itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
   })
-  A.db.SendReagents = false
+  A.db.sendReagents = false
   tinsert(A:GetAutoMailEntries(), { itemID = 2589, itemName = "Linen Cloth", recipient = "Bankalt" })
 
   local batches, itemCount = A:BuildMailQueue("DefaultRecipient", "")
@@ -346,13 +346,13 @@ Testkit.Test("BuildMailQueue applies item rules in the reagent bag with SendReag
   Testkit.AssertEqual(batches[1].recipient, "Bankalt")
 end)
 
-Testkit.Test("BuildMailQueue applies name rules in the reagent bag with SendReagents off", function()
+Testkit.Test("BuildMailQueue applies name rules in the reagent bag with sendReagents off", function()
   local A = NewFakeAddon({
     [5] = { { itemLink = "item:2589", locked = false, soulbound = false } },
   }, {
     itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
   })
-  A.db.SendReagents = false
+  A.db.sendReagents = false
   tinsert(A:GetAutoMailEntries(), { itemName = "Cloth", recipient = "Bankalt" })
 
   local batches, itemCount = A:BuildMailQueue("DefaultRecipient", "")
@@ -362,13 +362,13 @@ end)
 
 -- The other half of the fix: scanning the bag must not start sweeping it.
 -- "Send all Crafting Reagents" is still what mails unmatched contents.
-Testkit.Test("BuildMailQueue does not sweep unmatched reagent-bag items with SendReagents off", function()
+Testkit.Test("BuildMailQueue does not sweep unmatched reagent-bag items with sendReagents off", function()
   local A = NewFakeAddon({
     [5] = { { itemLink = "item:reagent", locked = false, soulbound = false } },
   }, {
     itemInfoByLink = { ["item:reagent"] = { name = "Some Reagent", itemID = 99, bindType = 0 } },
   })
-  A.db.SendReagents = false
+  A.db.sendReagents = false
 
   local _, itemCount = A:BuildMailQueue("DefaultRecipient", "")
   Testkit.AssertEqual(itemCount, 0, "an item matching no rule must still need the option to be mailed")
@@ -376,14 +376,14 @@ end)
 
 -- The reagent bag can only hold tradeskill items, so BoE handling has never
 -- applied to it. Scanning it unconditionally must not change that.
-Testkit.Test("BuildMailQueue does not apply BoE handling to the reagent bag with SendReagents off", function()
+Testkit.Test("BuildMailQueue does not apply BoE handling to the reagent bag with sendReagents off", function()
   local A = NewFakeAddon({
     [5] = { { itemLink = "item:epicboe", locked = false, soulbound = false } },
   }, {
     itemInfoByLink = { ["item:epicboe"] = { name = "Epic BoE", itemID = 5, bindType = 2, rarity = 4 } },
   })
-  A.db.SendReagents = false
-  A.db.SendBOE = true
+  A.db.sendReagents = false
+  A.db.sendBoe = true
 
   local _, itemCount = A:BuildMailQueue("DefaultRecipient", "BoeAlt")
   Testkit.AssertEqual(itemCount, 0, "BoE handling must stay out of the reagent bag")
@@ -395,8 +395,8 @@ Testkit.Test("BuildMailQueue does not apply BoE handling to the reagent bag", fu
   }, {
     itemInfoByLink = { ["item:epicboe"] = { name = "Epic BoE", itemID = 5, bindType = 2, rarity = 4 } },
   })
-  A.db.SendReagents = true
-  A.db.SendBOE = true
+  A.db.sendReagents = true
+  A.db.sendBoe = true
 
   -- Everything in the reagent bag is mailed to the default recipient whatever
   -- it is, so a BoE sitting there must not be diverted to the BoE recipient.

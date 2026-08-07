@@ -29,10 +29,10 @@ function A:DefaultProfile()
     recipient = "",
     boeRecipient = "",
     boeRarityLimit = 4,
-    SendBOE = false,
-    LimitBoeLevel = false,
+    sendBoe = false,
+    limitBoeLevel = false,
     limitBoeRarity = false,
-    SendReagents = false,
+    sendReagents = false,
     sendExcessGold = false,
     goldThreshold = 50000,
     confirmGoldSends = false,
@@ -70,6 +70,67 @@ function A:MigrateItemsString(itemsString)
   return list
 end
 
+--[[
+  Ordered schema migrations for a saved-variable table (AutoMailer or
+  AutoMailerGlobal). Each step only has to handle the shape it's migrating
+  from - a plain new field is already handled by InitializeSavedVariables'
+  ApplyDefaults pass, so a step only exists for changes ApplyDefaults can't
+  express: renames and format changes that ApplyDefaults would otherwise
+  either drop or silently reset to a default instead of carrying forward.
+
+  This replaces detecting the pre-4.9 string-items format by sniffing
+  type(t.items) - the only migration this addon had before schemaVersion
+  existed, and the reason a shape guess doesn't scale: some changes (a
+  renamed field holding the same type) can't be detected by shape at all.
+]]
+local CURRENT_SCHEMA_VERSION = 2
+
+-- Step 1: the pre-4.9 string item list (see A:MigrateItemsString above).
+local function MigrateItemsFormat(t)
+  if type(t.items) == "string" then
+    t.items = A:MigrateItemsString(t.items)
+  end
+end
+
+-- Step 2: renames the profile's three PascalCase fields to match the rest of
+-- the (camelCase) schema - limitBoeRarity, sendExcessGold, goldThreshold,
+-- confirmGoldSends, boeRecipient, boeRarityLimit. See #19.
+local RENAMED_PROFILE_FIELDS = {
+  SendBOE = "sendBoe",
+  LimitBoeLevel = "limitBoeLevel",
+  SendReagents = "sendReagents",
+}
+local function MigrateFieldNames(t)
+  for oldKey, newKey in pairs(RENAMED_PROFILE_FIELDS) do
+    if t[oldKey] ~= nil then
+      if t[newKey] == nil then
+        t[newKey] = t[oldKey]
+      end
+      t[oldKey] = nil
+    end
+  end
+end
+
+-- Indexed by the schemaVersion each step produces, so step N only ever runs
+-- against a table already at version N-1.
+local SCHEMA_MIGRATIONS = { MigrateItemsFormat, MigrateFieldNames }
+
+-- Runs every migration step a table hasn't seen yet, in order, and stamps
+-- the result at CURRENT_SCHEMA_VERSION. A table with no schemaVersion at all
+-- is version 0 - every table saved before this existed - so it runs the full
+-- list; a fresh table (no data for any step to touch) runs the same list
+-- as a no-op. Must run before ApplyDefaults/RepairFieldTypes in
+-- InitializeSavedVariables, so a step can still see - and carry forward -
+-- a pre-migration value that those would otherwise just wipe to a default.
+function A:MigrateProfile(t)
+  local version = type(t.schemaVersion) == "number" and t.schemaVersion or 0
+  for step = version + 1, CURRENT_SCHEMA_VERSION do
+    local migrate = SCHEMA_MIGRATIONS[step]
+    if migrate then migrate(t) end
+  end
+  t.schemaVersion = CURRENT_SCHEMA_VERSION
+end
+
 -- Rebuilds the rule list from whatever is in saved variables, discarding
 -- malformed rows and rows that identify no item at all (a rule with a blank
 -- name and no itemID would otherwise sit in the list matching nothing).
@@ -99,12 +160,9 @@ function A:RepairFieldTypes(t, defaults)
 end
 
 function A:SanitizeProfile(t)
-  -- items is special-cased: its default type (table) doesn't distinguish the
-  -- legacy string format from a corrupt value, so it needs its own handling
-  -- before the generic pass below can compare types.
-  if type(t.items) == "string" then
-    t.items = A:MigrateItemsString(t.items)
-  elseif type(t.items) == "table" then
+  -- The legacy string format is handled by A:MigrateProfile before this runs
+  -- (see MigrateItemsFormat), so by now items is either a table or corrupt.
+  if type(t.items) == "table" then
     t.items = A:SanitizeItemEntries(t.items)
   else
     t.items = {}
@@ -128,6 +186,13 @@ function A:InitializeSavedVariables()
   if type(AutoMailerGlobal) ~= "table" then
     AutoMailerGlobal = {}
   end
+
+  -- Ahead of ApplyDefaults below: a migration step needs to see a table's
+  -- pre-migration values to carry them forward, which ApplyDefaults and
+  -- RepairFieldTypes would otherwise treat as missing or wrongly-typed and
+  -- overwrite with a default.
+  A:MigrateProfile(AutoMailer)
+  A:MigrateProfile(AutoMailerGlobal)
 
   local function ApplyDefaults(target, defaults)
     for key, value in pairs(defaults) do

@@ -41,24 +41,90 @@ Testkit.Test("SanitizeItemEntries drops rows with no itemID and a blank name", f
   Testkit.AssertEqual(cleaned[2].itemName, "Ore")
 end)
 
-Testkit.Test("SanitizeProfile migrates a legacy string item list to the table format", function()
+--[[ A:MigrateProfile - schemaVersion and the ordered migration steps ]]
+
+Testkit.Test("MigrateProfile converts the legacy string item list to the table format", function()
   local A = NewA()
   local profile = { items = "Linen Cloth = Bankalt" }
-  A:SanitizeProfile(profile)
+  A:MigrateProfile(profile)
 
   Testkit.AssertEqual(type(profile.items), "table")
   Testkit.AssertDeepEqual(profile.items[1], { itemName = "Linen Cloth", recipient = "Bankalt" })
 end)
 
+Testkit.Test("MigrateProfile renames the PascalCase fields to their camelCase names", function()
+  local A = NewA()
+  local profile = { SendBOE = true, LimitBoeLevel = true, SendReagents = true }
+  A:MigrateProfile(profile)
+
+  Testkit.AssertEqual(profile.sendBoe, true)
+  Testkit.AssertEqual(profile.limitBoeLevel, true)
+  Testkit.AssertEqual(profile.sendReagents, true)
+  Testkit.AssertEqual(profile.SendBOE, nil, "the old key must not be left behind")
+  Testkit.AssertEqual(profile.LimitBoeLevel, nil)
+  Testkit.AssertEqual(profile.SendReagents, nil)
+end)
+
+Testkit.Test("MigrateProfile prefers an existing new-named value over the stale old one", function()
+  local A = NewA()
+  local profile = { SendBOE = true, sendBoe = false }
+  A:MigrateProfile(profile)
+
+  Testkit.AssertEqual(profile.sendBoe, false, "an existing sendBoe must win over stale SendBOE")
+  Testkit.AssertEqual(profile.SendBOE, nil)
+end)
+
+Testkit.Test("MigrateProfile is harmless on a fresh table with nothing to migrate", function()
+  local A = NewA()
+  local profile = {}
+  A:MigrateProfile(profile)
+
+  Testkit.AssertEqual(type(profile.schemaVersion), "number")
+  Testkit.AssertEqual(profile.items, nil, "migration must not invent fields ApplyDefaults is responsible for")
+end)
+
+Testkit.Test("MigrateProfile is a no-op once a table is already at the current version", function()
+  local A = NewA()
+  local profile = { items = "Ore = Bankalt" }
+  A:MigrateProfile(profile)
+  local versionAfterFirst = profile.schemaVersion
+
+  A:MigrateProfile(profile)
+  Testkit.AssertEqual(profile.schemaVersion, versionAfterFirst,
+      "migrating an already-current table must not change its version")
+  Testkit.AssertEqual(type(profile.items), "table", "already-migrated data must be left alone")
+end)
+
+--[[ A:SanitizeProfile - corruption repair, run after migration ]]
+
 Testkit.Test("SanitizeProfile fills in missing/invalid fields with defaults", function()
   local A = NewA()
-  local profile = { goldThreshold = "not a number", SendBOE = "yes" }
+  local profile = { goldThreshold = "not a number", sendBoe = "yes" }
   A:SanitizeProfile(profile)
 
   Testkit.AssertEqual(profile.goldThreshold, 50000)
-  Testkit.AssertEqual(profile.SendBOE, false)
+  Testkit.AssertEqual(profile.sendBoe, false)
   Testkit.AssertEqual(profile.confirmGoldSends, false)
   Testkit.AssertDeepEqual(profile.items, {})
+end)
+
+-- End-to-end: a saved-variable table from before schemaVersion existed, in
+-- the pre-4.9 string-items shape and carrying the old PascalCase field names,
+-- has to come out the other side of a real login fully migrated - not just
+-- the two migration steps in isolation.
+Testkit.Test("InitializeSavedVariables migrates a pre-schemaVersion profile end to end", function()
+  local A = NewA()
+  _G.AutoMailer = { items = "Linen Cloth = Bankalt", SendBOE = true }
+  _G.AutoMailerGlobal = {}
+
+  A:InitializeSavedVariables()
+
+  Testkit.AssertDeepEqual(AutoMailer.items[1], { itemName = "Linen Cloth", recipient = "Bankalt" })
+  Testkit.AssertEqual(AutoMailer.sendBoe, true)
+  Testkit.AssertEqual(AutoMailer.SendBOE, nil)
+  Testkit.AssertEqual(type(AutoMailer.schemaVersion), "number")
+
+  _G.AutoMailer, _G.AutoMailerGlobal = nil, nil
 end)
 
 Testkit.Test("InitializeSavedVariables gives per-character and global profiles independent item lists", function()
@@ -298,6 +364,7 @@ end)
 Testkit.Test("migration and sanitizing leave rules as loose name rules", function()
   local A = NewA()
   local profile = { items = "Linen Cloth = Bankalt" }
+  A:MigrateProfile(profile)
   A:SanitizeProfile(profile)
 
   Testkit.AssertEqual(profile.items[1].itemID, nil,

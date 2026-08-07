@@ -699,13 +699,13 @@ local function CreateFiltersPanel()
   local boeHeader = CreateHeader(panel, "Bind-on-Equip Items", title, 0, -18, "GameFontNormalLarge")
 
   local boeCB = Track(CreateCheckbox(panel, "Automatically send BoEs",
-      function() return A.db.SendBOE end,
-      function(value) A.db.SendBOE = value end))
+      function() return A.db.sendBoe end,
+      function(value) A.db.sendBoe = value end))
   boeCB:SetPoint("TOPLEFT", boeHeader, "BOTTOMLEFT", 0, -6)
 
   local boeLevelCB = Track(CreateCheckbox(panel, "Only BoEs with required level lower than yours",
-      function() return A.db.LimitBoeLevel end,
-      function(value) A.db.LimitBoeLevel = value end))
+      function() return A.db.limitBoeLevel end,
+      function(value) A.db.limitBoeLevel = value end))
   boeLevelCB:SetPoint("TOPLEFT", boeCB, "BOTTOMLEFT", 16, 0)
 
   local boeRarityCB = Track(CreateCheckbox(panel, "Limit rarity",
@@ -751,8 +751,8 @@ local function CreateFiltersPanel()
   local reagentHeader = CreateHeader(panel, "Crafting Reagents", boeRecipientBox, -5, -20, "GameFontNormalLarge")
 
   local reagentCB = Track(CreateCheckbox(panel, "Send all Crafting Reagents",
-      function() return A.db.SendReagents end,
-      function(value) A.db.SendReagents = value end))
+      function() return A.db.sendReagents end,
+      function(value) A.db.sendReagents = value end))
   reagentCB:SetPoint("TOPLEFT", reagentHeader, "BOTTOMLEFT", 0, -6)
 
   -- Gold

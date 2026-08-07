@@ -23,7 +23,7 @@ local L = A.L
 A.MAX_MAIL_ATTACHMENTS = ATTACHMENTS_MAX_SEND or 12
 
 function A:AutomailBoe(bindType)
-  return A.db.SendBOE and bindType == 2
+  return A.db.sendBoe and bindType == 2
 end
 
 --[[
@@ -164,7 +164,7 @@ function A:BuildMailQueue(recipient, boeRecipient)
 
         elseif boeApplies and A:AutomailBoe(bindType) then
           local rarityOk = (not A.db.limitBoeRarity) or rarity <= A.db.boeRarityLimit
-          local levelOk = (not A.db.LimitBoeLevel) or itemMinLevel < A:GetPlayerLevel()
+          local levelOk = (not A.db.limitBoeLevel) or itemMinLevel < A:GetPlayerLevel()
           if rarityOk and levelOk then
             targetRecipient = (#boeRecipient > 0) and boeRecipient or recipient
             skipReason = "BoE passed the filters but no BoE Recipient or Recipient is set"
@@ -193,7 +193,7 @@ function A:BuildMailQueue(recipient, boeRecipient)
   -- crafting materials into. Rather than trying to identify "is this a
   -- reagent" via item classification (which proved unreliable - GetItemInfo
   -- fields can be uncached, and classID/type schemes shift between
-  -- expansions), the SendReagents option just mails out anything non-soulbound
+  -- expansions), the sendReagents option just mails out anything non-soulbound
   -- sitting in that bag.
   --
   -- Scanned unconditionally, though. The option controls whether everything in
@@ -201,7 +201,7 @@ function A:BuildMailQueue(recipient, boeRecipient)
   -- cloth, ore and herbs in here automatically, gating the scan on the option
   -- meant an explicit rule for exactly those items silently never matched - and
   -- silently, since an unscanned bag produces nothing to log either.
-  scanBag(REAGENTBAG_CONTAINER or 5, A.db.SendReagents, false)
+  scanBag(REAGENTBAG_CONTAINER or 5, A.db.sendReagents, false)
 
   local recipients = {}
   for targetRecipient in pairs(queuedByRecipient) do
