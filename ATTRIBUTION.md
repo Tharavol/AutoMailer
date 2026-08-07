@@ -21,4 +21,6 @@ Earlier builds of this fork shipped without a license file, which left the terms
 
 This fork/build updates the original addon for current WoW retail client compatibility (interface version, mail-attachment flow, options panel registration) and layers on additional configuration options on top of the original mailing concept.
 
+As of 6.0, the addon's display name (the `## Title` shown in the client's AddOns list) is **AutoMailer Continued**, reflecting that this is a continuation of an addon whose original CurseForge listing is no longer maintained. Nothing else about its identity changed with the rename: the shipped folder, slash commands, chat output and SavedVariables are still `AutoMailer`, so an existing install upgrades in place with no reconfiguration.
+
 If you are the original author and would like this attribution corrected, expanded, or removed, please reach out.

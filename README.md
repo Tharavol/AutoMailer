@@ -1,6 +1,8 @@
-# AutoMailer
+# AutoMailer Continued
 
 A World of Warcraft addon that adds a **Send Mail** button to the mailbox and automatically mails items (and optionally gold) out of your bags to whoever you configure — no manual dragging and dropping required.
+
+Shipped folder, slash commands and chat output are still `AutoMailer` — see [Installation](#installation) and [ATTRIBUTION.md](ATTRIBUTION.md) for why the display name changed without the addon itself changing identity.
 
 ## Features
 

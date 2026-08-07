@@ -1,5 +1,5 @@
 ## Interface: 120007
-## Title: AutoMailer
+## Title: AutoMailer Continued
 ## Author: RainForDays, Tharavol, MAI-Code-1-Flash, Claude
 ## Notes: Automatically mail items.
 ## Version: @project-version@
