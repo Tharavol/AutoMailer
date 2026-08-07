@@ -2,6 +2,15 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [6.1] - 2026-08-07
+
+### Added
+- **AutoMailer now warns, without ever blocking, when a recipient doesn't match a character seen on this account before** ([#26](https://github.com/Tharavol/AutoMailer/issues/26)). A recipient's row in the options panel gets a subtle tint, and a run mailing to one prints a heads-up before it starts. Mailing outside the account (a guild bank alt, a friend) is completely normal, so this is a nudge against typos, never a gate - and it stays quiet until the account-wide roster has logged in on at least two characters, since a single-entry roster hasn't actually confirmed anything is absent yet.
+
+### Internal
+- The roster is accumulated one login at a time into `AutoMailerGlobal`, the approach settled on in [#76](https://github.com/Tharavol/AutoMailer/issues/76): no addon-readable API exposes the account's own character list, so this is written from scratch rather than reading a client-provided source.
+- The suite is up from 88 tests to 100.
+
 ## [6.0] - 2026-08-07
 
 ### Changed
