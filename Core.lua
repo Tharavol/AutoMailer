@@ -78,6 +78,22 @@ function A:RequestItemDataLoad(itemID)
   end
 end
 
+-- Picks up a bag item onto the cursor, and the cursor state around it - the
+-- first leg of the real attach flow (pick up, then click the attachment
+-- slot). Grouped with the container wrappers above rather than the mail-form
+-- ones below since picking an item up isn't specific to mailing it.
+function A:PickupContainerItem(bag, slot)
+  C_Container.PickupContainerItem(bag, slot)
+end
+
+function A:CursorHasItem()
+  return CursorHasItem()
+end
+
+function A:ClearCursor()
+  ClearCursor()
+end
+
 --[[
   Money and player state, wrapped for the same reason the container and item
   APIs above are: nothing outside this file should reach for the game's
@@ -138,4 +154,51 @@ function A:IsCurrentCharacter(recipient)
   if not playerName then return false end
   local recName = recipient:match("^(.-)%-.+$") or recipient
   return recName:lower() == playerName:lower()
+end
+
+--[[
+  The send-mail form, wrapped for the same reason as everything above:
+  Send.lua's batch-sequencing state machine is the riskiest code in the
+  addon, and it owns the irreversible gold math, so it needs to be drivable
+  by tests rather than only ever exercised live. See issue #15.
+]]
+function A:ClearSendForm()
+  ClearSendMail()
+end
+
+function A:SetSendRecipient(name)
+  SendMailNameEditBox:SetText(name)
+  SendMailNameEditBox:SetCursorPosition(0)
+end
+
+function A:SetSendSubject(text)
+  SendMailSubjectEditBox:SetText(text)
+  SendMailSubjectEditBox:SetCursorPosition(0)
+end
+
+-- Money isn't a SendMail() argument. MoneyInputFrame_SetCopper only updates
+-- the SendMailMoney editbox's displayed text - the actual amount staged for
+-- SendMail() is only committed when Blizzard's own send-mail button handler
+-- reads that editbox and calls SetSendMailMoney(). Since Send.lua calls
+-- SendMail() directly and skips that handler, both must be called here or
+-- the mail goes out with no gold attached.
+function A:SetSendMoney(copper)
+  if MoneyInputFrame_SetCopper and SendMailMoney then
+    MoneyInputFrame_SetCopper(SendMailMoney, copper)
+  end
+  if SetSendMailMoney then
+    SetSendMailMoney(copper)
+  end
+end
+
+function A:AttachToSlot(index)
+  ClickSendMailItemButton(index)
+end
+
+function A:GetAttachedItem(index)
+  return GetSendMailItem(index)
+end
+
+function A:CommitSend(recipient, subject, body)
+  SendMail(recipient, subject, body or "")
 end

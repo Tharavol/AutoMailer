@@ -303,25 +303,25 @@ function A:AttachItemToMail(bag, slot, attachIndex, itemLink)
     return false
   end
 
-  if CursorHasItem() then
+  if A:CursorHasItem() then
     A:Log("Cursor already held an item before pickup; clearing it")
-    ClearCursor()
+    A:ClearCursor()
   end
 
-  C_Container.PickupContainerItem(bag, slot)
+  A:PickupContainerItem(bag, slot)
 
-  if not CursorHasItem() then
+  if not A:CursorHasItem() then
     A:Log("Pickup failed: cursor is empty after PickupContainerItem for", itemLink or "<unknown>")
     return false
   end
 
-  ClickSendMailItemButton(attachIndex)
+  A:AttachToSlot(attachIndex)
 
-  local attachedName = GetSendMailItem(attachIndex)
+  local attachedName = A:GetAttachedItem(attachIndex)
   if not attachedName then
     A:Log("Attach verification failed at index", attachIndex, "for", itemLink or "<unknown>")
-    if CursorHasItem() then
-      ClearCursor()
+    if A:CursorHasItem() then
+      A:ClearCursor()
     end
     return false
   end
@@ -343,10 +343,9 @@ function A:SendMailBatch(batch)
     return
   end
 
-  ClearSendMail()
+  A:ClearSendForm()
 
-  SendMailNameEditBox:SetText(batch.recipient)
-  SendMailNameEditBox:SetCursorPosition(0)
+  A:SetSendRecipient(batch.recipient)
 
   -- The excess-gold batch defers its money amount to here (see BuildMailQueue)
   -- since postage isn't a flat fee and can't be predicted upfront. GetSendMailPrice()
@@ -364,22 +363,10 @@ function A:SendMailBatch(batch)
   end
 
   local subject = A:GetBatchSubject(batch)
-  SendMailSubjectEditBox:SetText(subject)
-  SendMailSubjectEditBox:SetCursorPosition(0)
+  A:SetSendSubject(subject)
 
-  -- Money isn't a SendMail() argument. MoneyInputFrame_SetCopper only updates
-  -- the SendMailMoney editbox's displayed text - the actual amount staged for
-  -- SendMail() is only committed when Blizzard's own send-mail button handler
-  -- reads that editbox and calls SetSendMailMoney(). Since we call SendMail()
-  -- directly and skip that handler, we must call SetSendMailMoney() ourselves
-  -- or the mail goes out with no gold attached.
   local money = batch.money or 0
-  if MoneyInputFrame_SetCopper and SendMailMoney then
-    MoneyInputFrame_SetCopper(SendMailMoney, money)
-  end
-  if SetSendMailMoney then
-    SetSendMailMoney(money)
-  end
+  A:SetSendMoney(money)
 
   -- What this mail would add to the /am list tally, held on the batch rather
   -- than folded straight in: attaching an item is not the same as sending it,
@@ -418,7 +405,7 @@ function A:SendMailBatch(batch)
   -- to compute its amount) proceed. See A:OnMailSuccess for why.
   A.moneyBeforeSend = A:GetMoney()
   A:ArmSendWatchdog()
-  SendMail(batch.recipient, subject, "")
+  A:CommitSend(batch.recipient, subject)
   A.mailsSent = A.mailsSent + 1
 
   -- Three cases, not two: the excess-gold batch carries no items at all, and

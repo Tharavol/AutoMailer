@@ -2,6 +2,12 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [5.5] - 2026-08-06
+
+### Internal
+- **The send-mail form now has a Core seam**, matching the container/item/money wrappers `Core.lua` already provided: `A:ClearSendForm`, `A:SetSendRecipient`, `A:SetSendSubject`, `A:SetSendMoney`, `A:AttachToSlot`, `A:GetAttachedItem`, `A:CommitSend`, plus `A:PickupContainerItem`, `A:CursorHasItem` and `A:ClearCursor` alongside the existing container wrappers. `Send.lua` no longer reaches for `ClearSendMail`, `SendMailNameEditBox`, `SendMailSubjectEditBox`, `ClickSendMailItemButton`, `GetSendMailItem`, `SendMail`, `CursorHasItem`, `ClearCursor`, `C_Container.PickupContainerItem`, `SetSendMailMoney` or `MoneyInputFrame_SetCopper` directly ([#15](https://github.com/Tharavol/AutoMailer/issues/15)). No behavior change.
+- `tests/test_send.lua`'s fake mail form now stubs the Core seam instead of standing up the underlying WoW globals itself, which is the scaffolding move the 5.2/5.3 notes on this issue already flagged as owed.
+
 ## [5.4] - 2026-08-06
 
 ### Internal

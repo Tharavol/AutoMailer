@@ -10,13 +10,12 @@
   hand, which is what makes "did the stale timer stay quiet?" an assertion
   instead of a twenty-second sleep.
 
-  Send.lua still reaches for the mail-form globals directly rather than going
-  through Core (see the Core mail-form seam issue), so driving a whole run here
-  means standing those globals up - InstallFakeMailForm below. That is more
-  scaffolding than a test file would normally carry, and it is here because the
-  alternative is worse: the sent tally, the mails-sent count and the per-mail
-  chat line all live past the point where Send.lua touches those globals, so
-  without it the three of them ship with no coverage at all.
+  Send.lua drives the mail form entirely through the Core seam
+  (A:ClearSendForm, A:SetSendRecipient, A:AttachToSlot, A:CommitSend, etc.),
+  so InstallFakeMailForm below fakes at that boundary instead of standing up
+  the underlying WoW globals. That is what lets a whole run be driven here:
+  the sent tally, the mails-sent count and the per-mail chat line all live
+  past the point where Send.lua touches the seam.
 ]]
 
 local Testkit = require("tests.testkit")
@@ -81,9 +80,10 @@ local function NewSendAddon()
 end
 
 --[[
-  Stands the mail form up in front of an addon from NewSendAddon: the globals
-  SendMailBatch drives, the bags behind them, and enough of a cursor for the
-  real attach flow (pick the item up, click the attachment slot) to work.
+  Stands the mail form up in front of an addon from NewSendAddon: the Core
+  seam SendMailBatch drives (A:ClearSendForm, A:SetSendRecipient, ...), the
+  bags behind it, and enough of a cursor for the real attach flow (pick the
+  item up, click the attachment slot) to work.
 
   Bags are given as bags[bag][slot] = { itemLink, name, count }. A batch item
   pointing at a slot that holds something else - or nothing - fails to attach,
@@ -100,7 +100,7 @@ local function InstallFakeMailForm(A, opts)
   local postage = opts.postage or 30
 
   local form = {
-    sent = {},          -- one entry per SendMail call
+    sent = {},          -- one entry per A:CommitSend call
     popups = {},        -- one entry per StaticPopup_Show call
     attachments = {},
     balance = opts.money or 0,
@@ -140,40 +140,34 @@ local function InstallFakeMailForm(A, opts)
   _G.MailFrame = { IsShown = function() return true end }
   _G.MailFrameTab2 = { Click = function() end }
 
-  _G.ClearSendMail = function()
+  function A:ClearSendForm()
     form.attachments = {}
     staged = 0
   end
 
-  local function EditBox()
-    return { SetText = function() end, SetCursorPosition = function() end }
+  function A:SetSendRecipient() end
+  function A:SetSendSubject() end
+  function A:SetSendMoney(copper) staged = copper or 0 end
+
+  function A:CursorHasItem() return cursor ~= nil end
+  function A:ClearCursor() cursor = nil end
+  function A:PickupContainerItem(bag, slot)
+    cursor = bags[bag] and bags[bag][slot] or nil
   end
-  _G.SendMailNameEditBox = EditBox()
-  _G.SendMailSubjectEditBox = EditBox()
 
-  _G.SendMailMoney = {}
-  _G.MoneyInputFrame_SetCopper = function() end
-  _G.SetSendMailMoney = function(copper) staged = copper or 0 end
-
-  _G.CursorHasItem = function() return cursor ~= nil end
-  _G.ClearCursor = function() cursor = nil end
-  _G.C_Container = {
-    PickupContainerItem = function(bag, slot)
-      cursor = bags[bag] and bags[bag][slot] or nil
-    end,
-  }
-  _G.ClickSendMailItemButton = function(index)
+  function A:AttachToSlot(index)
     if cursor then
       form.attachments[index] = cursor
       cursor = nil
     end
   end
-  _G.GetSendMailItem = function(index)
+
+  function A:GetAttachedItem(index)
     local entry = form.attachments[index]
     return entry and (entry.name or entry.itemLink)
   end
 
-  _G.SendMail = function(recipient, subject)
+  function A:CommitSend(recipient, subject)
     local items = {}
     for _, entry in pairs(form.attachments) do
       tinsert(items, entry.itemLink)
