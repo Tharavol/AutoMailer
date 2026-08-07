@@ -376,3 +376,72 @@ end
 function A:ItemInAutomailList(itemName, itemID)
   return A:GetAutoMailEntry(itemName, itemID) ~= nil
 end
+
+--[[
+  The account-wide roster of characters this account has logged into with
+  AutoMailer installed, used to softly flag a recipient that doesn't look
+  like one of them (see A:IsKnownCharacter). Always stored on
+  AutoMailerGlobal regardless of useGlobalProfile - it describes the account,
+  not the mailing profile, so it isn't part of DefaultProfile.
+
+  Takes name/realm as arguments rather than reading UnitName/GetRealmName
+  itself, the same way A:ApplyRuleName takes a resolver instead of calling
+  C_Item directly: it's what keeps this file free of WoW API calls, so the
+  caller (AutoMailer.lua, on login, via A:GetPlayerName/A:GetRealmName) is
+  the only place that has to touch the real API surface.
+
+  #76 found no addon-readable API for the account's own character list, so
+  this is what #26 builds the "not seen before" check on: entries accumulate
+  one login at a time, which is why A:IsKnownCharacter treats a roster with
+  fewer than two entries as not yet meaningful.
+]]
+function A:RecordKnownCharacter(name, realm)
+  name = name and A:Trim(name) or ""
+  realm = realm and A:Trim(realm):gsub(" ", "") or ""
+  if name == "" or realm == "" then return end
+
+  AutoMailerGlobal.knownCharacters = AutoMailerGlobal.knownCharacters or {}
+  local key = (name .. "-" .. realm):lower()
+  for _, entry in ipairs(AutoMailerGlobal.knownCharacters) do
+    if entry:lower() == key then return end
+  end
+  tinsert(AutoMailerGlobal.knownCharacters, name .. "-" .. realm)
+end
+
+-- Whether recipient matches a character this account has logged in as
+-- before. A soft signal only - mailing outside the account (a guild bank
+-- alt, a friend) is legitimate, so this must never be used to block a send,
+-- only to flag a possible typo.
+--
+-- A recipient with no "-Realm" suffix matches by name alone, against any
+-- realm on the roster: that mirrors how mail resolves a bare name in-game
+-- (to a character on the sender's own realm), and the account may have
+-- characters on more than one realm recorded. A recipient that does name a
+-- realm has to match both.
+--
+-- A roster with fewer than two entries (nothing yet, or just the current
+-- character) hasn't actually confirmed any name is absent - it just hasn't
+-- seen enough logins to say - so this stays silent rather than flagging
+-- every recipient on a fresh install.
+function A:IsKnownCharacter(recipient)
+  recipient = recipient and A:Trim(recipient) or ""
+  if recipient == "" then return true end
+
+  local roster = AutoMailerGlobal and AutoMailerGlobal.knownCharacters
+  if type(roster) ~= "table" or #roster < 2 then return true end
+
+  local recName, recRealm = recipient:match("^(.-)%-(.+)$")
+  recName = (recName or recipient):lower()
+  recRealm = recRealm and recRealm:lower()
+
+  for _, entry in ipairs(roster) do
+    local name, realm = entry:match("^(.-)%-(.+)$")
+    if name and name:lower() == recName then
+      if not recRealm or (realm and realm:lower() == recRealm) then
+        return true
+      end
+    end
+  end
+
+  return false
+end

@@ -428,4 +428,59 @@ Testkit.Test("a second run cannot be queued while the gold confirmation is open"
   Testkit.AssertEqual(#form.popups, 2, "a dismissed dialog must not block every later run")
 end)
 
+--[[ the pre-run "not seen on this account before" warning (#26) ]]
+
+local function GoldOnlyRun(A)
+  A.db = A:DefaultProfile()
+  A.db.recipient = "Bankalt"
+  A.db.sendExcessGold = true
+  A.db.goldThreshold = 1
+end
+
+Testkit.Test("StartMailSend warns about a recipient not on the known-character roster", function()
+  local A = NewMailingAddon({ money = 600000000 })
+  _G.AutoMailerGlobal = { knownCharacters = { "Mainchar-TestRealm", "Otheralt-TestRealm" } }
+  GoldOnlyRun(A)
+
+  A:StartMailSend()
+
+  Testkit.AssertTrue(A:PrintedContains("Bankalt"),
+      "the pre-run warning should name the recipient that isn't on the roster")
+  _G.AutoMailerGlobal = nil
+end)
+
+Testkit.Test("StartMailSend stays quiet about a recipient already on the roster", function()
+  local A = NewMailingAddon({ money = 600000000 })
+  _G.AutoMailerGlobal = { knownCharacters = { "Mainchar-TestRealm", "Bankalt-TestRealm" } }
+  GoldOnlyRun(A)
+
+  A:StartMailSend()
+
+  Testkit.AssertTrue(not A:PrintedContains("not seen on this account before"))
+  _G.AutoMailerGlobal = nil
+end)
+
+Testkit.Test("StartMailSend stays quiet during the roster warm-up", function()
+  local A = NewMailingAddon({ money = 600000000 })
+  _G.AutoMailerGlobal = { knownCharacters = { "Mainchar-TestRealm" } }
+  GoldOnlyRun(A)
+
+  A:StartMailSend()
+
+  Testkit.AssertTrue(not A:PrintedContains("not seen on this account before"),
+      "a roster with fewer than two entries hasn't confirmed anything is actually absent")
+  _G.AutoMailerGlobal = nil
+end)
+
+Testkit.Test("StartMailSend never blocks a send over an unrecognized recipient", function()
+  local A, form = NewMailingAddon({ money = 600000000 })
+  _G.AutoMailerGlobal = { knownCharacters = { "Mainchar-TestRealm", "Otheralt-TestRealm" } }
+  GoldOnlyRun(A)
+
+  A:StartMailSend()
+
+  Testkit.AssertEqual(#form.sent, 1, "the warning is a nudge, not a block - the mail must still go out")
+  _G.AutoMailerGlobal = nil
+end)
+
 return true

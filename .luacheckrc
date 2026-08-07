@@ -66,7 +66,7 @@ read_globals = {
     "SetSendMailMoney", "MoneyInputFrame_SetCopper",
 
     -- Money / misc
-    "GetMoney", "GetCoinTextureString", "UnitLevel", "IsShiftKeyDown", "UnitName",
+    "GetMoney", "GetCoinTextureString", "UnitLevel", "IsShiftKeyDown", "UnitName", "GetRealmName",
 
     -- Localization
     "GetLocale",

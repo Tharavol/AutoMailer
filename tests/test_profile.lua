@@ -471,4 +471,83 @@ Testkit.Test("GetAutoMailEntries returns the live table by reference", function(
   Testkit.AssertEqual(#A.db.items, 2, "edits to the returned list must be visible on A.db.items")
 end)
 
+--[[ A:RecordKnownCharacter / A:IsKnownCharacter - the account-wide roster (#26) ]]
+
+Testkit.Test("RecordKnownCharacter adds a Name-Realm entry, with spaces stripped from the realm", function()
+  local A = NewA()
+  _G.AutoMailerGlobal = {}
+
+  A:RecordKnownCharacter("Bankalt", "Emerald Dream")
+
+  Testkit.AssertDeepEqual(AutoMailerGlobal.knownCharacters, { "Bankalt-EmeraldDream" })
+  _G.AutoMailerGlobal = nil
+end)
+
+Testkit.Test("RecordKnownCharacter does not duplicate an already-known character", function()
+  local A = NewA()
+  _G.AutoMailerGlobal = { knownCharacters = { "Bankalt-EmeraldDream" } }
+
+  A:RecordKnownCharacter("bankalt", "Emerald Dream")
+
+  Testkit.AssertEqual(#AutoMailerGlobal.knownCharacters, 1,
+      "a case-different duplicate must not be appended again")
+  _G.AutoMailerGlobal = nil
+end)
+
+Testkit.Test("RecordKnownCharacter ignores a blank name or realm", function()
+  local A = NewA()
+  _G.AutoMailerGlobal = {}
+
+  A:RecordKnownCharacter(nil, "Emerald Dream")
+  A:RecordKnownCharacter("Bankalt", nil)
+  A:RecordKnownCharacter("Bankalt", "")
+
+  Testkit.AssertEqual(AutoMailerGlobal.knownCharacters, nil, "nothing valid was ever recorded")
+  _G.AutoMailerGlobal = nil
+end)
+
+Testkit.Test("IsKnownCharacter stays silent during warm-up, with fewer than two known characters", function()
+  local A = NewA()
+  _G.AutoMailerGlobal = { knownCharacters = { "Mainchar-TestRealm" } }
+
+  Testkit.AssertTrue(A:IsKnownCharacter("Totally Made Up"),
+      "a one-entry roster hasn't confirmed anything is actually absent yet")
+  _G.AutoMailerGlobal = nil
+end)
+
+Testkit.Test("IsKnownCharacter matches a bare name against any realm on the roster, case-insensitively", function()
+  local A = NewA()
+  _G.AutoMailerGlobal = { knownCharacters = { "Mainchar-TestRealm", "Bankalt-OtherRealm" } }
+
+  Testkit.AssertTrue(A:IsKnownCharacter("bankalt"))
+  _G.AutoMailerGlobal = nil
+end)
+
+Testkit.Test("IsKnownCharacter requires the realm to match when the recipient names one", function()
+  local A = NewA()
+  _G.AutoMailerGlobal = { knownCharacters = { "Mainchar-TestRealm", "Bankalt-OtherRealm" } }
+
+  Testkit.AssertTrue(A:IsKnownCharacter("Bankalt-OtherRealm"))
+  Testkit.AssertTrue(not A:IsKnownCharacter("Bankalt-TestRealm"),
+      "a wrong realm on an otherwise-known name should still be flagged")
+  _G.AutoMailerGlobal = nil
+end)
+
+Testkit.Test("IsKnownCharacter flags a name that matches nothing on the roster", function()
+  local A = NewA()
+  _G.AutoMailerGlobal = { knownCharacters = { "Mainchar-TestRealm", "Bankalt-TestRealm" } }
+
+  Testkit.AssertTrue(not A:IsKnownCharacter("Bnakalt"), "a typo'd name must not read as known")
+  _G.AutoMailerGlobal = nil
+end)
+
+Testkit.Test("IsKnownCharacter treats a blank or nil recipient as nothing to flag", function()
+  local A = NewA()
+  _G.AutoMailerGlobal = { knownCharacters = { "Mainchar-TestRealm", "Bankalt-TestRealm" } }
+
+  Testkit.AssertTrue(A:IsKnownCharacter(""))
+  Testkit.AssertTrue(A:IsKnownCharacter(nil))
+  _G.AutoMailerGlobal = nil
+end)
+
 return true

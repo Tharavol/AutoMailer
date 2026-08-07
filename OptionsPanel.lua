@@ -86,10 +86,19 @@ local function CreateItemTable(optionsPanel, anchorTo)
   --[[ SHARED ROW BEHAVIOR ]]
 
   local function UpdateRecipientHint(row)
-    local isEmpty = A:Trim(row.Recipient:GetText()) == ""
+    local typed = A:Trim(row.Recipient:GetText())
+    local isEmpty = typed == ""
     local fallback = A:Trim(A.db.recipient)
     row.RecipientHint:SetText(fallback ~= "" and fallback or L["no default set"])
     row.RecipientHint:SetShown(isEmpty and not row.Recipient.hasFocus)
+
+    -- A subtle, non-blocking nudge (see #26): a blank row falls back to the
+    -- default Recipient, which isn't this row's problem to flag.
+    if not isEmpty and not A:IsKnownCharacter(typed) then
+      row.Recipient:SetTextColor(1, 0.82, 0.4)
+    else
+      row.Recipient:SetTextColor(1, 1, 1)
+    end
   end
 
   -- Only ever called for rows in the Items table, which are the only rows with
@@ -566,7 +575,11 @@ end
 -- OnTextChanged with the userInput guard replaces the old OnKeyUp handlers:
 -- it catches pasted text (which fires no key event) and doesn't fire back on
 -- the addon's own SetText calls during a refresh.
-local function CreateTextBox(parent, width, getter, setter, numeric)
+--
+-- warnIfUnknown opts a box into the same subtle "not seen on this account
+-- before" marker the rule rows show (see #26 / UpdateRecipientHint) - used
+-- by the Recipient and BoE Recipient boxes, not the gold threshold box.
+local function CreateTextBox(parent, width, getter, setter, numeric, warnIfUnknown)
   local box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
   box:SetSize(width, 30)
   box:SetFontObject("ChatFontNormal")
@@ -576,14 +589,26 @@ local function CreateTextBox(parent, width, getter, setter, numeric)
     box:SetNumeric(true)
   end
 
+  local function UpdateWarningColor(self)
+    if not warnIfUnknown then return end
+    local typed = A:Trim(self:GetText())
+    if typed ~= "" and not A:IsKnownCharacter(typed) then
+      self:SetTextColor(1, 0.82, 0.4)
+    else
+      self:SetTextColor(1, 1, 1)
+    end
+  end
+
   box.Refresh = function(self)
     self:SetText(getter())
     self:SetCursorPosition(0)
+    UpdateWarningColor(self)
   end
   box:SetScript("OnTextChanged", function(self, userInput)
     if userInput then
       setter(self:GetText())
     end
+    UpdateWarningColor(self)
   end)
   box:SetScript("OnEnterPressed", function(self)
     setter(self:GetText())
@@ -641,7 +666,7 @@ local function CreateMainPanel()
         if panel.UpdateRecipientHints then
           panel.UpdateRecipientHints()
         end
-      end)
+      end, nil, true)
   recipientBox:SetPoint("TOPLEFT", recipientHeader, "BOTTOMLEFT", 5, 0)
   panel.recipientBox = recipientBox
 
@@ -743,7 +768,7 @@ local function CreateFiltersPanel()
 
   local boeRecipientBox = Track(CreateTextBox(panel, 200,
       function() return A.db.boeRecipient or "" end,
-      function(value) A.db.boeRecipient = value end))
+      function(value) A.db.boeRecipient = value end, nil, true))
   boeRecipientBox:SetPoint("TOPLEFT", boeRecipientHeader, "BOTTOMLEFT", 5, 0)
   panel.boeRecipientBox = boeRecipientBox
 

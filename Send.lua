@@ -236,6 +236,22 @@ function A:StartMailSend()
   -- that's genuinely awkward to undo, so it gets a confirmation by default.
   -- Item-only runs stay a single click, exactly as before.
   local summary = A:SummarizeQueue(queue)
+
+  -- A soft nudge, not a confirmation: mailing outside the account is
+  -- legitimate, so this never blocks the run, only names what's unfamiliar
+  -- before it goes out. Checked here rather than per-batch so it prints once
+  -- per run regardless of which path below sends it. See #26.
+  local unknownRecipients = {}
+  for _, recipientName in ipairs(summary.recipients) do
+    if not A:IsKnownCharacter(recipientName) then
+      tinsert(unknownRecipients, recipientName)
+    end
+  end
+  if #unknownRecipients > 0 then
+    A:Print(string.format(L["Heads up: mailing to a name not seen on this account before: %s"],
+        table.concat(unknownRecipients, ", ")))
+  end
+
   if summary.goldCopper > 0 and A.db.confirmGoldSends then
     A:Log("Awaiting confirmation for a run including roughly", summary.goldCopper, "copper")
     A.pendingConfirmation = true

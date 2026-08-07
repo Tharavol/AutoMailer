@@ -143,14 +143,25 @@ function A:ItemIsSoulbound(bag, slot)
   return true
 end
 
+function A:GetPlayerName()
+  return UnitName("player")
+end
+
+-- The character's home realm, with no per-character resolution needed - used
+-- alongside A:GetPlayerName to build the "Name-Realm" form recorded into the
+-- known-character roster (see A:RecordKnownCharacter).
+function A:GetRealmName()
+  return GetRealmName()
+end
+
 -- Recipients are matched against the currently logged-in character's name so
 -- rules that happen to target yourself (e.g. a global profile rule meant for
 -- a different alt) don't queue a pointless self-mail. Strips an optional
--- "-Realm" suffix off the recipient before comparing, since UnitName("player")
+-- "-Realm" suffix off the recipient before comparing, since A:GetPlayerName
 -- never includes one.
 function A:IsCurrentCharacter(recipient)
   if not recipient or recipient == "" then return false end
-  local playerName = UnitName("player")
+  local playerName = A:GetPlayerName()
   if not playerName then return false end
   local recName = recipient:match("^(.-)%-.+$") or recipient
   return recName:lower() == playerName:lower()

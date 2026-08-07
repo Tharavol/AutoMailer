@@ -53,6 +53,13 @@ function E:ADDON_LOADED(name)
 end
 
 function E:PLAYER_ENTERING_WORLD(login, reloadUI)
+  if login or reloadUI then
+    -- Builds the known-character roster A:IsKnownCharacter warns against
+    -- (see #26) one login at a time; independent of the login message below,
+    -- so it still runs with that setting off.
+    A:RecordKnownCharacter(A:GetPlayerName(), A:GetRealmName())
+  end
+
   if (login or reloadUI) and A.meta.loginMessage and A.loaded then
     -- No "v" prefix: the TOC version comes from the release tag, which already
     -- carries one (same reason as Send.lua's run banner).

@@ -18,6 +18,7 @@ Shipped folder, slash commands and chat output are still `AutoMailer` — see [I
   - Drag a bag item onto the list to add it, or onto an existing row's icon to change what that row matches.
   - Optionally, shift-click while the mailbox is open to auto-start a send run (off by default — see Configuration).
 - **Global profile** — optionally share one set of rules across all of your characters instead of configuring each one separately.
+- **Unfamiliar-recipient warning** — AutoMailer remembers which characters have logged in on this account and gives a subtle, non-blocking nudge (a tinted recipient field, plus a line before a run starts) when a recipient doesn't match one of them, to catch a typo before it costs a whole run. Mailing outside the account — a guild bank alt, a friend — is completely normal, so this never refuses to send; it just takes a couple of logins on your other characters to warm up before it has anything to compare against.
 - **Debug logging** — toggle verbose logging via `/am debug` or the options checkbox to troubleshoot what the addon is doing.
 
 ## Usage
