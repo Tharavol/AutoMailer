@@ -35,7 +35,7 @@
         <!-- Anchored in Lua: the Recipient edit box it points at is declared
              below, and XML anchors resolve in document order. -->
         <FontString parentKey="RecipientHint" inherits="GameFontDisableSmall" justifyH="LEFT">
-          <Size x="88" y="12"/>
+          <Size x="80" y="12"/>
         </FontString>
       </Layer>
     </Layers>
@@ -49,15 +49,22 @@
         <HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD"/>
       </Button>
       <EditBox parentKey="Name" inherits="InputBoxTemplate" autoFocus="false">
-        <Size x="112" y="20"/>
+        <Size x="90" y="20"/>
         <Anchors>
           <Anchor point="LEFT" relativeKey="$parent.IconButton" relativePoint="RIGHT" x="10" y="0"/>
         </Anchors>
       </EditBox>
-      <EditBox parentKey="Recipient" inherits="InputBoxTemplate" autoFocus="false">
-        <Size x="96" y="20"/>
+      <!-- How many of this item to leave in the bags instead of mailing (#78). -->
+      <EditBox parentKey="Retain" inherits="InputBoxTemplate" autoFocus="false" numeric="true">
+        <Size x="30" y="20"/>
         <Anchors>
-          <Anchor point="LEFT" relativeKey="$parent.Name" relativePoint="RIGHT" x="12" y="0"/>
+          <Anchor point="LEFT" relativeKey="$parent.Name" relativePoint="RIGHT" x="8" y="0"/>
+        </Anchors>
+      </EditBox>
+      <EditBox parentKey="Recipient" inherits="InputBoxTemplate" autoFocus="false">
+        <Size x="80" y="20"/>
+        <Anchors>
+          <Anchor point="LEFT" relativeKey="$parent.Retain" relativePoint="RIGHT" x="8" y="0"/>
         </Anchors>
       </EditBox>
       <Button parentKey="Delete">
@@ -96,21 +103,28 @@
       <Layer level="OVERLAY">
         <!-- Anchored in Lua, for the same document-order reason as above. -->
         <FontString parentKey="RecipientHint" inherits="GameFontDisableSmall" justifyH="LEFT">
-          <Size x="88" y="12"/>
+          <Size x="80" y="12"/>
         </FontString>
       </Layer>
     </Layers>
     <Frames>
       <EditBox parentKey="Name" inherits="InputBoxTemplate" autoFocus="false">
-        <Size x="136" y="20"/>
+        <Size x="114" y="20"/>
         <Anchors>
           <Anchor point="LEFT" x="10" y="0"/>
         </Anchors>
       </EditBox>
-      <EditBox parentKey="Recipient" inherits="InputBoxTemplate" autoFocus="false">
-        <Size x="96" y="20"/>
+      <!-- How many matching items to leave in the bags instead of mailing (#78). -->
+      <EditBox parentKey="Retain" inherits="InputBoxTemplate" autoFocus="false" numeric="true">
+        <Size x="30" y="20"/>
         <Anchors>
-          <Anchor point="LEFT" relativeKey="$parent.Name" relativePoint="RIGHT" x="12" y="0"/>
+          <Anchor point="LEFT" relativeKey="$parent.Name" relativePoint="RIGHT" x="8" y="0"/>
+        </Anchors>
+      </EditBox>
+      <EditBox parentKey="Recipient" inherits="InputBoxTemplate" autoFocus="false">
+        <Size x="80" y="20"/>
+        <Anchors>
+          <Anchor point="LEFT" relativeKey="$parent.Retain" relativePoint="RIGHT" x="8" y="0"/>
         </Anchors>
       </EditBox>
       <Button parentKey="Delete">

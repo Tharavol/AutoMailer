@@ -185,6 +185,78 @@ Testkit.Test("BuildMailQueue carries each slot's stack size onto the queued item
       "the run's own totals stay in slots, since a slot is what occupies an attachment")
 end)
 
+--[[ Retain (#78): a rule can cap how much of a held item gets mailed ]]
+
+Testkit.Test("BuildMailQueue sends only what's left over above a rule's Retain count", function()
+  local A = NewFakeAddon({
+    [0] = { { itemLink = "item:2589", locked = false, soulbound = false, count = 200 } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+  })
+  tinsert(A:GetAutoMailEntries(), { itemID = 2589, itemName = "Linen Cloth", recipient = "Bankalt", retain = 50 })
+
+  local batches, itemCount = A:BuildMailQueue("DefaultRecipient", "")
+  Testkit.AssertEqual(itemCount, 1)
+  Testkit.AssertEqual(batches[1].items[1].count, 150, "150 of the 200 held should ship, keeping 50 back")
+end)
+
+Testkit.Test("BuildMailQueue sends nothing when the held count is at or below Retain", function()
+  local A = NewFakeAddon({
+    [0] = { { itemLink = "item:2589", locked = false, soulbound = false, count = 30 } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+  })
+  tinsert(A:GetAutoMailEntries(), { itemID = 2589, itemName = "Linen Cloth", recipient = "Bankalt", retain = 50 })
+
+  local batches, itemCount = A:BuildMailQueue("DefaultRecipient", "")
+  Testkit.AssertEqual(itemCount, 0, "nothing above Retain means nothing to mail")
+  Testkit.AssertEqual(#batches, 0)
+end)
+
+Testkit.Test("BuildMailQueue tallies Retain across every bag holding the item, not per slot", function()
+  local A = NewFakeAddon({
+    [0] = { { itemLink = "item:2589", locked = false, soulbound = false, count = 40 } },
+    [1] = { { itemLink = "item:2589", locked = false, soulbound = false, count = 40 } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+  })
+  tinsert(A:GetAutoMailEntries(), { itemID = 2589, itemName = "Linen Cloth", recipient = "Bankalt", retain = 50 })
+
+  local batches, itemCount = A:BuildMailQueue("DefaultRecipient", "")
+  -- 80 held across the two bags minus a Retain of 50 leaves 30 to mail. The
+  -- first-scanned slot covers all 30 by itself, so the second is held back
+  -- entirely rather than both shipping partially - Retain is a total, not a
+  -- per-slot cap.
+  Testkit.AssertEqual(itemCount, 1)
+  Testkit.AssertEqual(batches[1].items[1].count, 30)
+end)
+
+Testkit.Test("BuildMailQueue leaves a rule with no Retain sending everything, as before", function()
+  local A = NewFakeAddon({
+    [0] = { { itemLink = "item:2589", locked = false, soulbound = false, count = 200 } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+  })
+  tinsert(A:GetAutoMailEntries(), { itemID = 2589, itemName = "Linen Cloth", recipient = "Bankalt" })
+
+  local batches, itemCount = A:BuildMailQueue("DefaultRecipient", "")
+  Testkit.AssertEqual(itemCount, 1)
+  Testkit.AssertEqual(batches[1].items[1].count, 200, "no Retain field means the whole stack ships")
+end)
+
+Testkit.Test("BuildMailQueue logs a Retain holdback when debug logging is on", function()
+  local A = NewFakeAddon({
+    [0] = { { itemLink = "item:2589", locked = false, soulbound = false, count = 10 } },
+  }, {
+    itemInfoByLink = { ["item:2589"] = { name = "Linen Cloth", itemID = 2589, bindType = 0 } },
+    debugLogging = true,
+  })
+  tinsert(A:GetAutoMailEntries(), { itemID = 2589, itemName = "Linen Cloth", recipient = "Bankalt", retain = 50 })
+
+  A:BuildMailQueue("DefaultRecipient", "")
+  Testkit.AssertTrue(A:LoggedContains("held back by this rule's Retain setting"))
+end)
+
 Testkit.Test("BuildMailQueue honors a BoE rarity limit", function()
   local A = NewFakeAddon({
     [0] = {

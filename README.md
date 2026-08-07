@@ -9,6 +9,7 @@ Shipped folder, slash commands and chat output are still `AutoMailer` — see [I
 - **One-click sending** — opens the mailbox, click "Send Mail", and AutoMailer attaches and sends everything that matches your rules. Run it as many times as you like; it just picks up whatever's left in your bags.
 - **Per-item recipient rules** — a table of rules, one row per item, each with the item's icon, its name, and its own recipient. A blank recipient falls back to your default Recipient. Build it by shift-clicking or dragging items straight out of your bags.
 - **Name matching** — a second table for rules that match by text instead of by item, so `Ore` mails every ore. Kept separate from the item table, because a text rule doesn't name one item and so has no icon to show.
+- **Retain a stash** — each rule has a Retain count for how many of that item to leave in your bags instead of mailing every one you're holding. Defaults to 0 (mail all of them), and applies to the total held across every bag, not per stack.
 - **Auto-mail crafting reagents** — optionally sends everything sitting in your Reagent Bag.
 - **Auto-mail BoE items** — optionally mails Bind-on-Equip items to a separate BoE Recipient, with optional filters for item level (only below your character's level) and rarity (uncommon/rare/epic).
 - **Excess gold mailing** — optionally mails gold above a configurable threshold to your Recipient, automatically accounting for mail postage so your balance lands exactly on the threshold. Since gold is the one part of a run that's genuinely awkward to undo, a run that would send gold asks for confirmation first by default (item-only runs still send in one click).
@@ -42,10 +43,12 @@ Open the options panel with `/am` (or via the standard WoW AddOns options menu).
 Rules live in two tables, because there are two kinds of rule:
 
 - **Recipient** — the default recipient for matched items.
-- **Items to AutoMail** — rules that match one specific item. Each row has the item's icon, its name, and a recipient; leave a row's recipient blank to use the default Recipient (shown greyed in the field). Add rows by shift-clicking or dragging an item from your bags, or with **Add Item** while holding one on the cursor. The red X removes a row.
+- **Items to AutoMail** — rules that match one specific item. Each row has the item's icon, its name, a Retain count, and a recipient; leave a row's recipient blank to use the default Recipient (shown greyed in the field). Add rows by shift-clicking or dragging an item from your bags, or with **Add Item** while holding one on the cursor. The red X removes a row.
+
+  **Retain** caps how many of that item stay in your bags: a run mails only what you're holding above the Retain count, counting everything across all your bags rather than per stack. 0 (the default, shown dimmed) mails all of it.
 
   These match that exact item, so a rule for Linen Cloth won't also sweep up Linen Cloth Bandages.
-- **Name Matches** — rules that match by text: any item whose name contains what you typed, so `Ore` catches every ore. Press **Add Name Rule** and type. These rows have no icon, since the text doesn't name one particular item.
+- **Name Matches** — rules that match by text: any item whose name contains what you typed, so `Ore` catches every ore. Press **Add Name Rule** and type. These rows have no icon, since the text doesn't name one particular item. They have the same Retain column as Items to AutoMail, applied to the combined total of everything the rule matches.
 
   Matching is one-directional — your text has to appear in the item's name, not the other way round. A rule for `Ore` mails Copper Ore; a rule for `Heavy Silken Thread` does *not* mail Silken Thread.
 

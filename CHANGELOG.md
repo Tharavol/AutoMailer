@@ -2,6 +2,15 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [6.2] - 2026-08-07
+
+### Added
+- **Item and Name rules now have a Retain count** ([#78](https://github.com/Tharavol/AutoMailer/issues/78)): set how many of a matched item to leave in your bags, and a run only mails what you're holding above that count. Retain totals across every bag rather than per stack or per slot, so it works the same whether the item is in one stack or scattered across several. Defaults to 0 (mail everything, as before), and shows dimmed in the options panel at that default so it doesn't compete with the row's actual data.
+
+### Internal
+- The column-label widgets in the options panel's rule tables (`Item`/`Retain`/`Recipient`) are now built through one shared helper instead of three near-identical blocks ([#79](https://github.com/Tharavol/AutoMailer/issues/79)).
+- The suite is up from 100 tests to 108.
+
 ## [6.1] - 2026-08-07
 
 ### Added

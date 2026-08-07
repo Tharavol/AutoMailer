@@ -141,8 +141,13 @@ function A:SanitizeItemEntries(list)
       local itemID = type(entry.itemID) == "number" and entry.itemID or nil
       local itemName = type(entry.itemName) == "string" and A:Trim(entry.itemName) or ""
       local recipient = type(entry.recipient) == "string" and A:Trim(entry.recipient) or ""
+      -- How many of this item to leave in the bags instead of mailing (#78).
+      -- Floored and clamped rather than dropped on a bad value, same as the
+      -- other fields here: a corrupt/negative/fractional Retain shouldn't
+      -- take the whole rule down with it.
+      local retain = type(entry.retain) == "number" and math.max(0, math.floor(entry.retain)) or 0
       if itemID or itemName ~= "" then
-        tinsert(cleaned, { itemID = itemID, itemName = itemName, recipient = recipient })
+        tinsert(cleaned, { itemID = itemID, itemName = itemName, recipient = recipient, retain = retain })
       end
     end
   end

@@ -41,6 +41,38 @@ Testkit.Test("SanitizeItemEntries drops rows with no itemID and a blank name", f
   Testkit.AssertEqual(cleaned[2].itemName, "Ore")
 end)
 
+-- #78: how many of a matched item to leave in the bags instead of mailing.
+Testkit.Test("SanitizeItemEntries carries a valid Retain count through unchanged", function()
+  local A = NewA()
+  local cleaned = A:SanitizeItemEntries({
+    { itemID = 123, itemName = "Frostwood", recipient = "", retain = 5 },
+  })
+
+  Testkit.AssertEqual(cleaned[1].retain, 5)
+end)
+
+Testkit.Test("SanitizeItemEntries defaults a missing Retain to 0", function()
+  local A = NewA()
+  local cleaned = A:SanitizeItemEntries({
+    { itemID = 123, itemName = "Frostwood", recipient = "" },
+  })
+
+  Testkit.AssertEqual(cleaned[1].retain, 0)
+end)
+
+Testkit.Test("SanitizeItemEntries clamps a negative or fractional Retain", function()
+  local A = NewA()
+  local cleaned = A:SanitizeItemEntries({
+    { itemID = 1, itemName = "A", recipient = "", retain = -3 },
+    { itemID = 2, itemName = "B", recipient = "", retain = 4.7 },
+    { itemID = 3, itemName = "C", recipient = "", retain = "5" }, -- wrong type: not a number
+  })
+
+  Testkit.AssertEqual(cleaned[1].retain, 0, "a negative Retain must clamp to 0")
+  Testkit.AssertEqual(cleaned[2].retain, 4, "a fractional Retain must floor")
+  Testkit.AssertEqual(cleaned[3].retain, 0, "a non-number Retain must fall back to 0")
+end)
+
 --[[ A:MigrateProfile - schemaVersion and the ordered migration steps ]]
 
 Testkit.Test("MigrateProfile converts the legacy string item list to the table format", function()
@@ -119,7 +151,7 @@ Testkit.Test("InitializeSavedVariables migrates a pre-schemaVersion profile end 
 
   A:InitializeSavedVariables()
 
-  Testkit.AssertDeepEqual(AutoMailer.items[1], { itemName = "Linen Cloth", recipient = "Bankalt" })
+  Testkit.AssertDeepEqual(AutoMailer.items[1], { itemName = "Linen Cloth", recipient = "Bankalt", retain = 0 })
   Testkit.AssertEqual(AutoMailer.sendBoe, true)
   Testkit.AssertEqual(AutoMailer.SendBOE, nil)
   Testkit.AssertEqual(type(AutoMailer.schemaVersion), "number")

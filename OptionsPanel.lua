@@ -240,6 +240,29 @@ local function CreateItemTable(optionsPanel, anchorTo)
     UpdateRecipientHint(row)
   end
 
+  -- Retain is 0 (mail everything) for most rules, so a bright "0" in every
+  -- row would compete with the item/recipient data that actually varies row
+  -- to row. Dimmed the same way an unset Recipient's placeholder text is.
+  local function UpdateRetainColor(row)
+    local entry = row.entry
+    if entry and entry.retain and entry.retain > 0 then
+      row.Retain:SetTextColor(1, 1, 1)
+    else
+      row.Retain:SetTextColor(0.5, 0.5, 0.5)
+    end
+  end
+
+  -- Blank or invalid text collapses to 0 (mail everything) rather than being
+  -- rejected, since a Retain box is expected to sit empty for most rules.
+  local function CommitRetain(row)
+    local entry = row.entry
+    if not entry then return end
+    entry.retain = math.max(0, math.floor(tonumber(row.Retain:GetText()) or 0))
+    row.Retain:SetText(tostring(entry.retain))
+    row.Retain:SetCursorPosition(0)
+    UpdateRetainColor(row)
+  end
+
   --[[
     Moves focus to another field of the same rule, for tabbing between the
     name and recipient boxes.
@@ -277,22 +300,44 @@ local function CreateItemTable(optionsPanel, anchorTo)
       self:ClearFocus()
     end)
     row.Name:SetScript("OnEditFocusLost", function() CommitName(row) end)
-    -- Tab goes to this rule's recipient; shift-tab just leaves the field,
+    -- Tab goes to this rule's Retain field; shift-tab just leaves the field,
     -- since nothing precedes the name in a row.
     row.Name:SetScript("OnTabPressed", function(self)
       local entry = row.entry
       self:ClearFocus()
       if not IsShiftKeyDown() then
+        FocusEntryField(entry, "Retain")
+      end
+    end)
+
+    row.Retain:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    row.Retain:SetScript("OnTabPressed", function(self)
+      local entry = row.entry
+      self:ClearFocus()
+      if IsShiftKeyDown() then
+        FocusEntryField(entry, "Name")
+      else
         FocusEntryField(entry, "Recipient")
       end
     end)
+    row.Retain:SetScript("OnEscapePressed", function(self)
+      self:SetText(tostring(row.entry and row.entry.retain or 0))
+      self:ClearFocus()
+    end)
+    row.Retain:SetScript("OnEditFocusLost", function() CommitRetain(row) end)
+    row.Retain:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetText(L["How many of this item to leave in your bags. 0 mails all of them."])
+      GameTooltip:Show()
+    end)
+    row.Retain:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     row.Recipient:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     row.Recipient:SetScript("OnTabPressed", function(self)
       local entry = row.entry
       self:ClearFocus()
       if IsShiftKeyDown() then
-        FocusEntryField(entry, "Name")
+        FocusEntryField(entry, "Retain")
       end
     end)
     row.Recipient:SetScript("OnEscapePressed", function(self)
@@ -347,6 +392,9 @@ local function CreateItemTable(optionsPanel, anchorTo)
 
     row.Name:SetText(entry.itemName or "")
     row.Name:SetCursorPosition(0)
+    row.Retain:SetText(tostring(entry.retain or 0))
+    row.Retain:SetCursorPosition(0)
+    UpdateRetainColor(row)
     row.Recipient:SetText(entry.recipient or "")
     row.Recipient:SetCursorPosition(0)
     row.Recipient.hasFocus = false
@@ -384,17 +432,20 @@ local function CreateItemTable(optionsPanel, anchorTo)
 
     -- Column labels sit at the same x offsets as the matching widgets in the
     -- row template so they line up with the rows below. Both templates put
-    -- Recipient at the same offset; only the first column differs, because
-    -- one template starts with an icon and the other doesn't.
-    local itemColumn = optionsPanel:CreateFontString(nil, "OVERLAY")
-    itemColumn:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", spec.columnInset, -8)
-    itemColumn:SetFontObject("GameFontNormalSmall")
-    itemColumn:SetText(L[spec.itemColumn])
+    -- Retain and Recipient at the same offsets; only the first column
+    -- differs, because one template starts with an icon and the other
+    -- doesn't.
+    local function ColumnLabel(xOffset, text)
+      local label = optionsPanel:CreateFontString(nil, "OVERLAY")
+      label:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", xOffset, -8)
+      label:SetFontObject("GameFontNormalSmall")
+      label:SetText(L[text])
+      return label
+    end
 
-    local recipientColumn = optionsPanel:CreateFontString(nil, "OVERLAY")
-    recipientColumn:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", 158, -8)
-    recipientColumn:SetFontObject("GameFontNormalSmall")
-    recipientColumn:SetText(L["Recipient"])
+    local itemColumn = ColumnLabel(spec.columnInset, spec.itemColumn)
+    ColumnLabel(132, "Retain")
+    ColumnLabel(170, "Recipient")
 
     local scrollBox = CreateFrame("Frame", nil, optionsPanel, "WowScrollBoxList")
     scrollBox:SetSize(LIST_WIDTH, spec.height)
@@ -462,7 +513,8 @@ local function CreateItemTable(optionsPanel, anchorTo)
     header = "Items to AutoMail",
     itemColumn = "Item",
     instructions = "Shift-click or drag an item from your bags to add it. "
-        .. "Leave a recipient blank to use the default Recipient.",
+        .. "Leave a recipient blank to use the default Recipient. "
+        .. "Retain keeps that many out of the mail.",
     emptyText = "No items yet.\n\nShift-click an item in your bags or drag one onto this list.",
     buttonText = "Add Item",
     buttonWidth = 110,
@@ -482,7 +534,8 @@ local function CreateItemTable(optionsPanel, anchorTo)
     columnInset = 10,
     header = "Name Matches",
     itemColumn = "Text to match",
-    instructions = "Mails every item whose name contains this text.",
+    instructions = "Mails every item whose name contains this text. "
+        .. "Retain keeps that many out of the mail.",
     emptyText = "No name rules.",
     buttonText = "Add Name Rule",
     buttonWidth = 130,

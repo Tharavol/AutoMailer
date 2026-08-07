@@ -104,6 +104,54 @@ function A:BuildMailQueue(recipient, boeRecipient)
     totalItems = totalItems + 1
   end
 
+  --[[
+    A rule's Retain count (#78) caps how much of the whole stash gets mailed,
+    not how much sits in any one slot - so a matched item can't be queued the
+    moment its slot is scanned the way everything else is. Slots for a
+    Retain>0 entry are parked here instead, keyed by the entry table itself,
+    and only turned into queueItem calls once every bag has been scanned and
+    the total held across all of them is known.
+  ]]
+  local pendingByEntry = {}
+
+  local function considerItem(entry, targetRecipient, bag, slot, itemLink, count)
+    local retain = entry and entry.retain
+    if not retain or retain <= 0 then
+      queueItem(targetRecipient, bag, slot, itemLink, count)
+      return
+    end
+    local pending = pendingByEntry[entry]
+    if not pending then
+      pending = {}
+      pendingByEntry[entry] = pending
+    end
+    tinsert(pending, { targetRecipient = targetRecipient, bag = bag, slot = slot, itemLink = itemLink, count = count })
+  end
+
+  -- Resolves every parked entry once scanning is done: total held minus
+  -- Retain is what's left to send, walked back across the slots in the order
+  -- they were scanned so a partial stack is trimmed rather than skipped
+  -- outright. A slot fully held back is accounted for the same way any other
+  -- skip is, so a run holding everything back still explains why.
+  local function resolvePendingRetain()
+    for entry, pending in pairs(pendingByEntry) do
+      local totalHeld = 0
+      for _, item in ipairs(pending) do
+        totalHeld = totalHeld + (item.count or 1)
+      end
+      local remaining = math.max(0, totalHeld - entry.retain)
+      for _, item in ipairs(pending) do
+        if remaining <= 0 then
+          noteSkip("held back by this rule's Retain setting", item.itemLink)
+        else
+          local sendCount = math.min(remaining, item.count or 1)
+          queueItem(item.targetRecipient, item.bag, item.slot, item.itemLink, sendCount)
+          remaining = remaining - sendCount
+        end
+      end
+    end
+  end
+
   -- One pass over a single bag. The Reagent Bag differs from the ordinary
   -- bags in two ways, and they are now separate flags because they turned out
   -- to be independent questions:
@@ -177,7 +225,7 @@ function A:BuildMailQueue(recipient, boeRecipient)
         end
 
         if targetRecipient and #targetRecipient > 0 then
-          queueItem(targetRecipient, bag, slot, itemLink, stackCount)
+          considerItem(entry, targetRecipient, bag, slot, itemLink, stackCount)
         else
           noteSkip(skipReason or "matched no rule", itemLink)
         end
@@ -202,6 +250,8 @@ function A:BuildMailQueue(recipient, boeRecipient)
   -- meant an explicit rule for exactly those items silently never matched - and
   -- silently, since an unscanned bag produces nothing to log either.
   scanBag(REAGENTBAG_CONTAINER or 5, A.db.sendReagents, false)
+
+  resolvePendingRetain()
 
   local recipients = {}
   for targetRecipient in pairs(queuedByRecipient) do
