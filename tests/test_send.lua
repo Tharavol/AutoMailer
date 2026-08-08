@@ -37,8 +37,12 @@ local function NewSendAddon()
 
   -- Fires every timer pending at the moment of the call. Timers registered by
   -- those callbacks are left for the next call, so a test can step the run
-  -- forward one hop at a time.
+  -- forward one hop at a time. Also advances any in-flight bag move (see
+  -- A.TickBagPlacement), so a hop of fake time moves the bags as well as the
+  -- timers - which is what lets the split-settle poll in A:AttachItemToMail
+  -- actually be exercised here.
   local function FireTimers()
+    if A.TickBagPlacement then A.TickBagPlacement() end
     local due = timers
     timers = {}
     for _, timer in ipairs(due) do
@@ -151,8 +155,56 @@ local function InstallFakeMailForm(A, opts)
 
   function A:CursorHasItem() return cursor ~= nil end
   function A:ClearCursor() cursor = nil end
+
+  --[[
+    Placing an item into a bag slot does not take effect immediately: on the
+    real client it's a server round trip, and reading the slot back too early
+    shows it still empty. Three attempts at #81 failed by treating that as a
+    broken API rather than an unfinished move, so the fake models the delay
+    explicitly - opts.splitSettleTicks says how many FireTimers() hops the
+    move takes to land (default 3, 0 for instant).
+
+    A:PickupContainerItem mirrors the real toggle: with an empty cursor it
+    picks a slot up, with a full cursor it places into that slot.
+  ]]
+  local settleTicks = opts.splitSettleTicks or 3
+  local pendingPlacement = nil
+
   function A:PickupContainerItem(bag, slot)
+    if cursor then
+      local placing = cursor
+      cursor = nil
+      if settleTicks <= 0 then
+        bags[bag] = bags[bag] or {}
+        bags[bag][slot] = placing
+        return
+      end
+      pendingPlacement = { bag = bag, slot = slot, entry = placing, ticksLeft = settleTicks }
+      return
+    end
     cursor = bags[bag] and bags[bag][slot] or nil
+  end
+
+  -- Advances any in-flight bag move by one hop. Driven from the fake C_Timer
+  -- so a test only has to call A.FireTimers() to let a placement land.
+  A.TickBagPlacement = function()
+    if not pendingPlacement then return end
+    pendingPlacement.ticksLeft = pendingPlacement.ticksLeft - 1
+    if pendingPlacement.ticksLeft > 0 then return end
+    local p = pendingPlacement
+    pendingPlacement = nil
+    bags[p.bag] = bags[p.bag] or {}
+    bags[p.bag][p.slot] = p.entry
+  end
+
+  -- Mirrors the real API: takes count off the slot's stack onto the cursor,
+  -- leaving the remainder behind, rather than lifting the whole stack the way
+  -- A:PickupContainerItem does (#81).
+  function A:SplitContainerItem(bag, slot, count)
+    local entry = bags[bag] and bags[bag][slot]
+    if not entry then return end
+    cursor = { itemLink = entry.itemLink, name = entry.name, count = count }
+    entry.count = (entry.count or 0) - count
   end
 
   function A:AttachToSlot(index)
@@ -162,9 +214,15 @@ local function InstallFakeMailForm(A, opts)
     end
   end
 
+  -- The 4th return is the attached quantity (#81: confirmed live against
+  -- GetSendMailItem's real output). A plain pickup always attaches the
+  -- slot's whole count, which is what lets a Retain mismatch be modeled here
+  -- too: a batch item queued for less than the slot holds shows up attached
+  -- for the full amount, same as it does on the real client.
   function A:GetAttachedItem(index)
     local entry = form.attachments[index]
-    return entry and (entry.name or entry.itemLink)
+    if not entry then return nil end
+    return entry.name or entry.itemLink, entry.itemID, entry.texture, entry.count
   end
 
   function A:CommitSend(recipient, subject)
@@ -320,6 +378,120 @@ Testkit.Test("the sent tally counts a stack by its size, not as one attachment",
   A:OnMailSuccess(1)
 
   Testkit.AssertEqual(A.itemsSent["Bankalt"]["Linen Cloth"], 200)
+end)
+
+--[[ Retain trims that need a partial stack (#78/#81) ]]
+
+-- Bag 0 slot 2 is free, so the split has somewhere to land.
+local function SplittableClothBags(overrides)
+  local opts = {
+    bags = { [0] = { { itemLink = "item:2589", name = "Linen Cloth", count = 200 }, false } },
+    names = { ["item:2589"] = "Linen Cloth" },
+    money = 1000000,
+  }
+  for key, value in pairs(overrides or {}) do opts[key] = value end
+  return opts
+end
+
+local function RetainBatch()
+  return { recipient = "Bankalt", items = { { bag = 0, slot = 1, itemLink = "item:2589", count = 150 } } }
+end
+
+-- Steps fake time forward until the batch has actually been handed to
+-- SendMail, and no further: FireTimers fires every pending timer regardless of
+-- its delay, so hops taken after the hand-off would also fire the 20-second
+-- send watchdog and abort the very run the test is waiting on.
+local function FireUntilSent(A, form, maxHops)
+  for _ = 1, maxHops or 30 do
+    if #form.sent > 0 then return end
+    A.FireTimers()
+  end
+end
+
+-- The whole point of #81: only the amount above Retain ships, and the rest
+-- stays in the bags. The split is a server round trip, so this only completes
+-- once the placement has actually landed - which the fake models as taking
+-- several hops (see InstallFakeMailForm).
+Testkit.Test("a Retain trim sends only the allowed amount once the split lands", function()
+  local A, form = NewMailingAddon(SplittableClothBags())
+
+  A:BeginMailRun({ RetainBatch() })
+  Testkit.AssertEqual(#form.sent, 0, "nothing can be sent while the split is still in flight")
+
+  FireUntilSent(A, form)
+  A:OnMailSuccess(1)
+
+  Testkit.AssertEqual(#form.sent, 1, "once the split lands the mail goes out")
+  Testkit.AssertEqual(A.itemsSent["Bankalt"]["Linen Cloth"], 150,
+      "only the queued 150 should ship, not the full 200 the slot held")
+
+  local _, remaining = A:GetContainerItemInfo(0, 1)
+  Testkit.AssertEqual(remaining, 50, "the other 50 must stay behind in the bag")
+end)
+
+-- The bug that made three earlier fixes look like API failures: giving up on
+-- the first look, before the move has landed, and sending nothing.
+Testkit.Test("a Retain trim waits for a slow split rather than giving up on it", function()
+  local A, form = NewMailingAddon(SplittableClothBags({ splitSettleTicks = 12 }))
+
+  A:BeginMailRun({ RetainBatch() })
+  for _ = 1, 3 do A.FireTimers() end
+  Testkit.AssertEqual(#form.sent, 0, "still in flight - the run must keep waiting, not abandon the item")
+
+  FireUntilSent(A, form)
+  A:OnMailSuccess(1)
+
+  Testkit.AssertEqual(A.itemsSent["Bankalt"]["Linen Cloth"], 150,
+      "a slow split must still ship exactly what Retain allows")
+end)
+
+-- The safety net: if the split genuinely never lands, the fallback is to send
+-- nothing, never to fall back to attaching the whole stack.
+Testkit.Test("a split that never lands skips the batch instead of over-sending", function()
+  local A, form = NewMailingAddon(SplittableClothBags({ splitSettleTicks = math.huge }))
+
+  A:BeginMailRun({ RetainBatch() })
+  -- Runs until the poll gives up on its own rather than counting hops against
+  -- SPLIT_SETTLE_ATTEMPTS, so widening that budget doesn't break this test.
+  for _ = 1, 500 do
+    if A:PrintedContains("Could not honor a Retain limit") then break end
+    A.FireTimers()
+  end
+
+  Testkit.AssertEqual(#form.sent, 0, "a stuck split must never fall back to sending the whole stack")
+  Testkit.AssertTrue(A:PrintedContains("Could not honor a Retain limit"))
+  Testkit.AssertEqual(A.itemsSent["Bankalt"], nil, "nothing shipped, so nothing should be tallied")
+end)
+
+-- Same protection one level down: whatever the attach step does, the form is
+-- asked what it really took, and more than Retain allows is never sent.
+Testkit.Test("attaching more than Retain allows pulls the batch back", function()
+  local A, form = NewMailingAddon(SplittableClothBags({ splitSettleTicks = 0 }))
+
+  -- Stands in for the live client behavior that broke the first fix: whatever
+  -- was put on the cursor, the form reports the whole pre-split stack.
+  local realGetAttached = A.GetAttachedItem
+  function A:GetAttachedItem(index)
+    local name = realGetAttached(A, index)
+    if not name then return nil end
+    return name, nil, nil, 200
+  end
+
+  A:BeginMailRun({ RetainBatch() })
+  for _ = 1, 5 do A.FireTimers() end
+
+  Testkit.AssertEqual(#form.sent, 0, "an over-attached stack must block the send")
+  Testkit.AssertTrue(A:PrintedContains("Could not honor a Retain limit"))
+end)
+
+Testkit.Test("a batch item queued for the full stack still uses a plain pickup", function()
+  local A = NewMailingAddon(ClothBags())
+
+  SendSingleBatch(A, ClothBatch())
+  A:OnMailSuccess(1)
+
+  Testkit.AssertEqual(A.itemsSent["Bankalt"]["Linen Cloth"], 200,
+      "queuing the whole stack must still ship all of it")
 end)
 
 Testkit.Test("nothing joins the sent tally until the server confirms the mail", function()

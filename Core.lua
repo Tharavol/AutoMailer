@@ -86,6 +86,13 @@ function A:PickupContainerItem(bag, slot)
   C_Container.PickupContainerItem(bag, slot)
 end
 
+-- Splits count off a slot's stack onto the cursor, leaving the rest behind.
+-- A:AttachItemToMail uses this plus a placement into a free slot to turn a
+-- Retain-trimmed amount into an ordinary stack it can attach (see #81).
+function A:SplitContainerItem(bag, slot, count)
+  C_Container.SplitContainerItem(bag, slot, count)
+end
+
 function A:CursorHasItem()
   return CursorHasItem()
 end

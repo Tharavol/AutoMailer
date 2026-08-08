@@ -301,22 +301,83 @@ function A:ProcessMailQueue()
   A:SendMailBatch(batch)
 end
 
--- Attaches a single bag item to the given send-mail attachment slot using
--- the real Blizzard attach flow: pick the item up onto the cursor, then
--- click the attachment slot to drop it in. Returns true/false and logs the
--- outcome at every step so a failure can be pinpointed from the chat log.
-function A:AttachItemToMail(bag, slot, attachIndex, itemLink)
-  A:Log("Attach start: bag=", bag, "slot=", slot, "attachIndex=", attachIndex, "item=", itemLink or "<unknown>")
+--[[
+  How long to keep watching for a split-off stack to actually appear in the
+  bag slot it was moved into, and how often to look.
+
+  Moving an item between bag slots is a server round trip, not a local edit:
+  the slot reads back empty for a while after SplitContainerItem and the
+  placement that follows it. Three fixes for #81 failed on exactly this -
+  checking immediately, and checking one frame later via C_Timer.After(0) -
+  and read "still empty" as "the API doesn't work" rather than "not yet".
+
+  So this polls for the slot to actually hold what was put there, the same
+  way A:OnMailSuccess polls for GetMoney() to actually move rather than
+  guessing a delay.
+
+  The budget is deliberately far wider than what a healthy round trip needs:
+  a live split was measured landing after 12 checks (~1.2s), so a cap near
+  that would turn ordinary lag into skipped items. This is a backstop for a
+  move that is never coming, not a latency budget - the same reasoning as
+  SEND_CONFIRM_TIMEOUT above, and it stays well inside that 20s watchdog so a
+  stuck split still ends the run cleanly rather than racing it.
+]]
+local SPLIT_SETTLE_INTERVAL = 0.1
+local SPLIT_SETTLE_ATTEMPTS = 100
+
+-- Somewhere ordinary for a split-off partial stack to land. Only the ordinary
+-- bags: this needs one free slot and those are what the rest of this file
+-- already scans.
+function A:FindEmptyBagSlot()
+  for bag = 0, NUM_BAG_SLOTS do
+    local slotCount = A:GetContainerNumSlots(bag)
+    for slot = 1, slotCount do
+      local _, _, _, _, _, _, itemLink = A:GetContainerItemInfo(bag, slot)
+      if not itemLink then
+        return bag, slot
+      end
+    end
+  end
+  return nil
+end
+
+--[[
+  Attaches a single bag item to the given send-mail attachment slot using the
+  real Blizzard attach flow: pick the item up onto the cursor, then click the
+  attachment slot to drop it in. Reports to callback(attached, retainViolated)
+  and logs the outcome at every step so a failure can be pinpointed from chat.
+
+  count is what the queue decided should ship, which a rule's Retain count
+  (#78) can trim below the slot's actual stack size. Attaching straight from a
+  cursor holding a freshly split stack does NOT work - confirmed live against
+  GetSendMailItem, which reported the whole pre-split stack as attached (#81).
+  The mail attachment button appears to resolve back to the source bag slot
+  rather than taking what the cursor holds.
+
+  What does work is making the partial stack an ordinary, settled stack of its
+  own first: split it off into a free bag slot, wait for it to actually land
+  there, and then attach that slot the completely ordinary way. The waiting is
+  the part earlier attempts got wrong (see SPLIT_SETTLE_* above) - the slot
+  reads empty for a while, and giving up on the first look reads a slow move
+  as a failed one.
+
+  Callback-based rather than returning a boolean precisely because of that
+  wait: the split path can only answer several frames later.
+]]
+function A:AttachItemToMail(bag, slot, attachIndex, itemLink, count, callback)
+  A:Log("Attach start: bag=", bag, "slot=", slot, "attachIndex=", attachIndex, "item=", itemLink or "<unknown>",
+      "count=", count or "<all>")
 
   -- A queue isn't always consumed the instant it's built - a confirmation
   -- dialog can sit in between, and earlier mails in the same run move items
   -- around - so re-check that this slot still holds what was queued instead
   -- of blindly picking up whatever happens to be there now.
-  local _, _, _, _, _, _, currentLink = A:GetContainerItemInfo(bag, slot)
+  local _, stackCount, _, _, _, _, currentLink = A:GetContainerItemInfo(bag, slot)
   if currentLink ~= itemLink then
     A:Log("Slot changed since the queue was built: expected", itemLink or "<unknown>",
         "but found", currentLink or "<empty>", "- skipping")
-    return false
+    callback(false)
+    return
   end
 
   if A:CursorHasItem() then
@@ -324,26 +385,85 @@ function A:AttachItemToMail(bag, slot, attachIndex, itemLink)
     A:ClearCursor()
   end
 
-  A:PickupContainerItem(bag, slot)
-
-  if not A:CursorHasItem() then
-    A:Log("Pickup failed: cursor is empty after PickupContainerItem for", itemLink or "<unknown>")
-    return false
-  end
-
-  A:AttachToSlot(attachIndex)
-
-  local attachedName = A:GetAttachedItem(attachIndex)
-  if not attachedName then
-    A:Log("Attach verification failed at index", attachIndex, "for", itemLink or "<unknown>")
-    if A:CursorHasItem() then
-      A:ClearCursor()
+  -- Everything from "the cursor holds what should go out" onwards, shared by
+  -- the plain and split paths. Verifies what the mail form says it actually
+  -- took: a Retain trim that silently attached more than it should is the
+  -- original bug, so it is reported rather than sent.
+  local function attachFromCursor()
+    if not A:CursorHasItem() then
+      A:Log("Pickup failed: cursor is empty after pickup for", itemLink or "<unknown>")
+      callback(false)
+      return
     end
-    return false
+
+    A:AttachToSlot(attachIndex)
+
+    -- GetSendMailItem's 4th return is the attached quantity - confirmed live
+    -- against real output (#81), not assumed.
+    local attachedName, _, _, attachedCount = A:GetAttachedItem(attachIndex)
+
+    if not attachedName then
+      A:Log("Attach verification failed at index", attachIndex, "for", itemLink or "<unknown>")
+      if A:CursorHasItem() then
+        A:ClearCursor()
+      end
+      callback(false)
+      return
+    end
+
+    if count and attachedCount and attachedCount > count then
+      A:Log("Attached", attachedCount, "but this rule's Retain only allows", count, "to ship for",
+          itemLink or "<unknown>", "- pulling this batch back rather than over-sending")
+      callback(false, true)
+      return
+    end
+
+    A:Log("Attached", attachedName, "x", attachedCount or "?", "at index", attachIndex)
+    callback(true)
   end
 
-  A:Log("Attached", attachedName, "at index", attachIndex)
-  return true
+  if count and stackCount and count < stackCount then
+    local restBag, restSlot = A:FindEmptyBagSlot()
+    if not restBag then
+      A:Log("No empty bag slot free to split off", count, "of", stackCount, "for", itemLink or "<unknown>")
+      callback(false, true)
+      return
+    end
+
+    A:Log("Splitting", count, "of", stackCount, "into bag=", restBag, "slot=", restSlot, "to honor Retain")
+    A:SplitContainerItem(bag, slot, count)
+    A:PickupContainerItem(restBag, restSlot)
+
+    -- The move is a server round trip; the slot stays empty until it lands.
+    local attempts = 0
+    local function waitForSplitToLand()
+      local _, landedCount, _, _, _, _, landedLink = A:GetContainerItemInfo(restBag, restSlot)
+      if landedLink == itemLink and landedCount == count then
+        A:Log("Split landed after", attempts, "check(s); attaching bag=", restBag, "slot=", restSlot)
+        A:PickupContainerItem(restBag, restSlot)
+        attachFromCursor()
+        return
+      end
+
+      attempts = attempts + 1
+      if attempts >= SPLIT_SETTLE_ATTEMPTS then
+        A:Log("Split never landed in bag=", restBag, "slot=", restSlot, "after", attempts, "checks - giving up on",
+            itemLink or "<unknown>", "rather than risk sending the whole stack")
+        if A:CursorHasItem() then
+          A:ClearCursor()
+        end
+        callback(false, true)
+        return
+      end
+
+      C_Timer.After(SPLIT_SETTLE_INTERVAL, waitForSplitToLand)
+    end
+
+    waitForSplitToLand()
+  else
+    A:PickupContainerItem(bag, slot)
+    attachFromCursor()
+  end
 end
 
 function A:SendMailBatch(batch)
@@ -389,18 +509,55 @@ function A:SendMailBatch(batch)
   -- and a batch that fails from here on never went anywhere. A:CommitSentItems
   -- applies this when MAIL_SUCCESS says the mail is really away.
   local pendingSent = {}
-
   local attachedCount = 0
-  for i, item in ipairs(batch.items) do
-    if A:AttachItemToMail(item.bag, item.slot, i, item.itemLink) then
-      attachedCount = attachedCount + 1
-      local itemName = A:GetItemInfo(item.itemLink) or item.itemLink
-      -- By stack size, not by attachment: an attachment is one slot, which for
-      -- most of what this addon mails is a stack of a couple hundred. The tally
-      -- counted attachments, so a full stack of Linen Cloth read "Linen Cloth x1".
-      pendingSent[itemName] = (pendingSent[itemName] or 0) + (item.count or 1)
+
+  -- Attaches batch.items one at a time via callback rather than a plain loop
+  -- with a boolean return: a Retain violation (#78/#81) needs to abort the
+  -- rest of THIS batch outright (pull everything back out of the send form)
+  -- rather than just skip the one item, which a simple per-item loop can't
+  -- express cleanly partway through.
+  local function attachNext(i)
+    local item = batch.items[i]
+    if not item then
+      A:FinishSendMailBatch(batch, subject, money, attachedCount, pendingSent)
+      return
     end
+
+    A:AttachItemToMail(item.bag, item.slot, i, item.itemLink, item.count, function(attached, retainViolated)
+      -- A Retain rule needed a partial stack that this client won't actually
+      -- split (#81) - pull everything this batch has attached so far back
+      -- into the bags and skip the whole batch rather than send the excess.
+      if retainViolated then
+        A:ClearSendForm()
+        A:Print(string.format(L["Could not honor a Retain limit for %s; skipping this batch."], batch.recipient))
+        C_Timer.After(0.2, function()
+          A:ProcessMailQueue()
+        end)
+        return
+      end
+
+      if attached then
+        attachedCount = attachedCount + 1
+        local itemName = A:GetItemInfo(item.itemLink) or item.itemLink
+        -- By stack size, not by attachment: an attachment is one slot, which
+        -- for most of what this addon mails is a stack of a couple hundred.
+        -- The tally counted attachments, so a full stack of Linen Cloth read
+        -- "Linen Cloth x1".
+        pendingSent[itemName] = (pendingSent[itemName] or 0) + (item.count or 1)
+      end
+      attachNext(i + 1)
+    end)
   end
+
+  attachNext(1)
+end
+
+-- The rest of what SendMailBatch used to do inline once every item in the
+-- batch has had an attach attempt: decide whether there was anything to send,
+-- and either hand off to SendMail or skip the batch. Split out because
+-- A:SendMailBatch's own attach loop is callback-driven (see attachNext above)
+-- and this only runs once that recursion bottoms out.
+function A:FinishSendMailBatch(batch, subject, money, attachedCount, pendingSent)
   batch.pendingSent = pendingSent
 
   if attachedCount == 0 and money == 0 then

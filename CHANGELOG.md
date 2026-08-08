@@ -2,6 +2,16 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [6.2.1] - 2026-08-08
+
+### Fixed
+- **A rule's Retain count now actually holds items back when the count falls inside a single stack** ([#81](https://github.com/Tharavol/AutoMailer/issues/81)). Retain worked out the right number to send, but the attach step always picked up a bag slot's *whole* stack, so a rule set to retain 8 of a stack of 9 mailed all 9. It only appeared to work when the count happened to line up with a whole slot. The trimmed amount is now split off into a free bag slot and mailed from there, so exactly what you asked to keep stays in your bags.
+
+### Internal
+- Attaching a Retain-trimmed stack waits for the split to actually land before mailing it, rather than assuming it is there immediately. Moving an item between bag slots is a server round trip: a live split was measured landing ~1.2 seconds later, and three earlier attempts at this fix each read the not-yet-settled slot as a broken API. This polls for the item to really arrive, the same approach `A:OnMailSuccess` already uses for the postage-adjusted balance.
+- The quantity actually attached is checked against what Retain allows before anything is sent, and a mismatch (or a split that never lands) pulls the whole mail back apart and skips it. Over-sending is the one failure this bug could cause that a player cannot undo by mailing things back, so it is now blocked on every path rather than just the one that was fixed.
+- The suite is up from 108 tests to 113, including one that holds a split deliberately slow to prove a run waits for it instead of abandoning the item.
+
 ## [6.2] - 2026-08-07
 
 ### Added
