@@ -44,9 +44,12 @@ jobs:
           unzip -l "$zip" | grep -q 'AutoMailer/MailQueue.lua'
           unzip -l "$zip" | grep -q 'AutoMailer/Send.lua'
           unzip -l "$zip" | grep -q 'AutoMailer/AutoMailerTemplates.xml'
-          unzip -l "$zip" | grep -q 'AutoMailer/CHANGELOG.md'
 
           if unzip -l "$zip" | grep -q 'AutoMailer/tests/'; then
             echo "tests/ should not ship in the release archive (see .pkgmeta)" >&2
+            exit 1
+          fi
+          if unzip -l "$zip" | grep -q 'AutoMailer/CHANGELOG.md'; then
+            echo "CHANGELOG.md should not ship in the release archive (see .pkgmeta)" >&2
             exit 1
           fi
