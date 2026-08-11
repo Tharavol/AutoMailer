@@ -2,6 +2,25 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [6.3.0] - 2026-08-11
+
+Adopts the cross-addon slash command standard (#84).
+
+### Added
+- `/am status`, `/am version`, `/am reset` (addon-level preferences only -- not your mailing rules), and `/am help`
+- `options`, `config` and `gui` as additional aliases for the bare command
+- `/am debug` now accepts an explicit `on`/`off` argument in addition to its existing bare toggle
+
+### Fixed
+- An unrecognised command (e.g. a typo of `list`) used to silently open the options panel as though it had worked; it now says which word wasn't understood and shows the command list
+
+## [6.2.2] - 2026-08-11
+
+### Changed
+- Bump TOC Interface to 120100 for WoW 12.1.0
+- Exclude CHANGELOG.md from the packaged zip
+- Add repository link to X-ReleaseNotes
+
 ## [6.2.1] - 2026-08-08
 
 ### Fixed

@@ -32,9 +32,13 @@ Shipped folder, slash commands and chat output are still `AutoMailer` — see [I
 
 | Command | Description |
 |---|---|
-| `/am` or `/automailer` | Opens the AutoMailer options panel and your bags. |
+| `/am` or `/automailer` | Opens the AutoMailer options panel and your bags (also: `options`, `config`, `gui`). |
 | `/am list` | Recaps everything mailed so far this session, grouped by recipient. |
-| `/am debug` | Toggles debug logging on/off. |
+| `/am debug [on\|off]` | Toggles or sets debug logging. |
+| `/am status` | Shows current settings. |
+| `/am version` | Shows the addon version. |
+| `/am reset` | Restores addon-level preferences (login message, debug logging, global profile, auto-send-on-shift-open) to defaults. Does not touch your mailing rules. |
+| `/am help` | Lists all commands. |
 
 ## Configuration
 

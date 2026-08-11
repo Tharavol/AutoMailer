@@ -164,18 +164,105 @@ local function OpenOptions()
   OpenAllBags()
 end
 
-function A:SlashCommand(args)
-  local command = strsplit(" ", args, 1):lower()
+-- Bare toggles and reports the new state; explicit on/off sets it; anything
+-- else is rejected instead of silently doing nothing (S8/S12).
+local function HandleDebug(rest)
+  local value = rest and rest:match("^%s*(.-)%s*$")
+  if value == "" then value = nil end
+  value = value and value:lower()
 
-  if command == "list" then
-    PrintSentSummary()
-  elseif command == "debug" then
+  if value == "on" then
+    A.meta.debugLogging = true
+  elseif value == "off" then
+    A.meta.debugLogging = false
+  elseif value == nil then
     A.meta.debugLogging = not A.meta.debugLogging
-    -- Two whole sentences rather than a stem plus an "enabled"/"disabled"
-    -- fragment: languages that inflect the adjective can't translate the
-    -- fragment without seeing the rest of the sentence.
-    A:Print(A.meta.debugLogging and L["Debug logging enabled."] or L["Debug logging disabled."])
   else
-    OpenOptions()
+    A:Print(string.format(L["'%s' - expected 'on' or 'off'."], value))
+    return
   end
+  -- Two whole sentences rather than a stem plus an "enabled"/"disabled"
+  -- fragment: languages that inflect the adjective can't translate the
+  -- fragment without seeing the rest of the sentence.
+  A:Print(A.meta.debugLogging and L["Debug logging enabled."] or L["Debug logging disabled."])
+end
+
+local function PrintStatus()
+  A:Print(string.format(L["Version: %s"], A:GetVersion()))
+  print(string.format(L["Profile: %s"], A.meta.useGlobalProfile and L["global"] or L["per-character"]))
+  print(string.format(L["Recipient: %s"], A.db.recipient ~= "" and A.db.recipient or L["(none)"]))
+  print(string.format(L["Send crafting reagents: %s"], A.db.sendReagents and L["on"] or L["off"]))
+  print(string.format(L["Send excess gold above %d: %s"], A.db.goldThreshold,
+      A.db.sendExcessGold and L["on"] or L["off"]))
+  print(string.format(L["Login message: %s"], A.meta.loginMessage and L["on"] or L["off"]))
+  print(string.format(L["Debug logging: %s"], A.meta.debugLogging and L["on"] or L["off"]))
+end
+
+-- Restores addon-level preferences (login message, debug logging, global
+-- profile, auto-send-on-shift-open) to their defaults. Deliberately does not
+-- touch the mailing profile (recipients, item rules, gold threshold) -- that
+-- is configuration a user builds up over time, not a "setting" this command
+-- means to wipe.
+local function HandleReset()
+  for key, value in pairs(A:DefaultMeta()) do
+    A.meta[key] = value
+  end
+  A:Print(L["Settings restored to defaults."])
+end
+
+-- Table of { name, help, handler }, so the help list is derived from the same
+-- data Dispatch matches against instead of a second hand-maintained block
+-- that could drift out of sync (S13). "", "config" and "gui" are silent
+-- aliases of "options" (S5): each opens the panel but carries no help text of
+-- its own, so help doesn't repeat the same line four times.
+local COMMANDS
+local function PrintHelp()
+  A:Print(L["Commands:"])
+  for _, entry in ipairs(COMMANDS) do
+    for _, line in ipairs(entry.help) do
+      print(line)
+    end
+  end
+end
+
+COMMANDS = {
+  {name = "", help = {}, handler = OpenOptions},
+  {
+    name = "options",
+    help = {L["/am, /am options, /am config, /am gui - open the options panel"]},
+    handler = OpenOptions
+  },
+  {name = "config", help = {}, handler = OpenOptions},
+  {name = "gui", help = {}, handler = OpenOptions},
+  {name = "list", help = {L["/am list - recap what has been sent this session"]}, handler = PrintSentSummary},
+  {name = "debug", help = {L["/am debug [on|off] - toggle or set debug logging"]}, handler = HandleDebug},
+  {name = "status", help = {L["/am status - show current settings"]}, handler = PrintStatus},
+  {
+    name = "version",
+    help = {L["/am version - show the addon version"]},
+    handler = function() A:Print(string.format(L["Version: %s"], A:GetVersion())) end
+  },
+  {name = "reset", help = {L["/am reset - restore settings to defaults"]}, handler = HandleReset}
+}
+
+COMMANDS[#COMMANDS + 1] = {name = "help", help = {L["/am help - show this list"]}, handler = PrintHelp}
+
+function A:SlashCommand(args)
+  local command, rest = strsplit(" ", args or "", 2)
+  -- Only the command word is lowercased for matching (S11); `rest` is passed
+  -- through untouched, and the one handler that matches a keyword inside it
+  -- (debug's on/off) lowercases it itself at the point of comparison.
+  command = command and command:lower() or ""
+
+  for _, entry in ipairs(COMMANDS) do
+    if entry.name == command then
+      entry.handler(rest)
+      return
+    end
+  end
+
+  -- A typo must be visibly a typo, never a silent fallback to opening the
+  -- options panel as though it had worked (S4).
+  A:Print(string.format(L["Unknown command: %s"], command))
+  PrintHelp()
 end
