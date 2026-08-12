@@ -3,6 +3,7 @@
 ## Author: RainForDays, Tharavol, MAI-Code-1-Flash, Claude
 ## Notes: Automatically mail items.
 ## Version: @project-version@
+## IconTexture: Interface\Icons\Achievement_GuildPerk_gmail
 ## X-License: GPL-3.0-only
 ## DefaultState: enabled
 ## SavedVariablesPerCharacter: AutoMailer

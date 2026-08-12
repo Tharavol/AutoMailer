@@ -2,6 +2,11 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [6.3.1] - 2026-08-11
+
+### Added
+- Icon (`Achievement_GuildPerk_gmail`) for the AddOns list and AddonCompartment button
+
 ## [6.3.0] - 2026-08-11
 
 Adopts the cross-addon slash command standard (#84).
