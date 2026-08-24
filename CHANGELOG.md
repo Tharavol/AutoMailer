@@ -2,7 +2,7 @@
 
 All notable changes to AutoMailer are documented in this file.
 
-## [Unreleased]
+## [6.3.2] - Unreleased
 
 ### Fixed
 - **The Send Mail button no longer draws underneath other UI** ([#86](https://github.com/Tharavol/AutoMailer/issues/86)). It sat outside the mailbox's own frame hierarchy while holding a copy of the mailbox's layer numbers, which meant nothing actually ordered it against the frames it was overlapping. It is now part of the mailbox frame, so the client draws it with the mailbox.
