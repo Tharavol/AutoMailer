@@ -2,6 +2,16 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **The Send Mail button no longer draws underneath other UI** ([#86](https://github.com/Tharavol/AutoMailer/issues/86)). It sat outside the mailbox's own frame hierarchy while holding a copy of the mailbox's layer numbers, which meant nothing actually ordered it against the frames it was overlapping. It is now part of the mailbox frame, so the client draws it with the mailbox.
+- **The Send Mail button comes back when you switch from TSM's mailing window to the default mail UI** ([#87](https://github.com/Tharavol/AutoMailer/issues/87)). Opening the mailbox was the only thing that put the button on screen, so an addon that swapped its own mailbox UI in took the button away and clicking back to the Blizzard one didn't bring it back. The button now follows the default mail window's own visibility.
+
+### Internal
+- Both fixes are the same one-line change of the button's parent, replacing the explicit strata, frame level and `OnHide` hook that were standing in for it. Strata and draw order now track the mail frame automatically, including when the UIPanel system raises it - which an absolute frame level set at mailbox-open time would not have.
+- The suite is up from 113 tests to 119, covering the button's placement decisions directly for the first time.
+
 ## [6.3.1] - 2026-08-11
 
 ### Added

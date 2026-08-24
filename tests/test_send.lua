@@ -655,4 +655,138 @@ Testkit.Test("StartMailSend never blocks a send over an unrecognized recipient",
   _G.AutoMailerGlobal = nil
 end)
 
+--[[
+  THE MAILBOX TRIGGER BUTTON (#86, #87)
+
+  A:EnsureMailTriggerButton is the one place that decides where the Send Mail
+  button lives in the frame hierarchy, and both bugs were decisions made here
+  rather than anything that happens during a run - so this fakes CreateFrame
+  and MailFrame just far enough to record what the function does to them.
+
+  Deliberately not a frame implementation: the fake does not model parent
+  visibility inheritance or draw order, because those are the client's job and
+  faking them would only prove the fake agrees with itself. What is asserted
+  instead is the handful of calls that hand those jobs to the client - the
+  parent passed to CreateFrame, and the absence of the explicit strata, level
+  and OnHide-hook overrides that used to take them back.
+]]
+local function InstallFakeFrames()
+  local function NewFrame(name, parent)
+    local frame = {
+      frameName = name,
+      parent = parent,
+      shown = false,
+      points = {},
+      hookedScripts = {},
+      strataSetExplicitly = false,
+      levelSetExplicitly = false,
+    }
+
+    function frame:GetFrameStrata() return "HIGH" end
+    function frame:GetFrameLevel() return 10 end
+    function frame:SetFrameStrata() self.strataSetExplicitly = true end
+    function frame:SetFrameLevel() self.levelSetExplicitly = true end
+    function frame:SetSize() end
+    function frame:SetText(text) self.text = text end
+    function frame:SetScript(script, fn) self[script] = fn end
+    function frame:HookScript(script) tinsert(self.hookedScripts, script) end
+    function frame:ClearAllPoints() self.points = {} end
+    function frame:SetPoint(...) tinsert(self.points, { ... }) end
+    function frame:Show() self.shown = true end
+    function frame:Hide() self.shown = false end
+    function frame:IsShown() return self.shown end
+
+    return frame
+  end
+
+  local mailFrame = NewFrame("MailFrame", nil)
+  mailFrame.shown = true
+  _G.MailFrame = mailFrame
+
+  _G.CreateFrame = function(_, name, parent)
+    return NewFrame(name, parent)
+  end
+
+  return mailFrame
+end
+
+-- #86: the button used to be a UIParent child holding a copy of MailFrame's
+-- strata and level+5. A frame level only orders siblings within one parent's
+-- hierarchy, so those numbers ordered it against nothing and other UI drew
+-- over it. Being MailFrame's child is the whole fix.
+Testkit.Test("the mailbox trigger button is parented to the mail frame", function()
+  local A = NewSendAddon()
+  local mailFrame = InstallFakeFrames()
+
+  local button = A:EnsureMailTriggerButton()
+
+  Testkit.AssertTrue(button ~= nil, "MailFrame exists, so the button should have been built")
+  Testkit.AssertEqual(button.parent, mailFrame,
+      "a UIParent child cannot be ordered against MailFrame's own descendants")
+end)
+
+-- Strata and level are inherited from the parent on purpose. Pinning a level
+-- at open time would not survive the UIPanel system raising MailFrame, which
+-- is the same class of bug as #86 one step later.
+Testkit.Test("the trigger button sets no explicit strata or frame level", function()
+  local A = NewSendAddon()
+  InstallFakeFrames()
+
+  local button = A:EnsureMailTriggerButton()
+
+  Testkit.AssertEqual(button.strataSetExplicitly, false,
+      "strata has to track the parent, not a value copied once")
+  Testkit.AssertEqual(button.levelSetExplicitly, false,
+      "an absolute level pinned at open time goes stale when MailFrame is raised")
+end)
+
+-- #87: hiding was driven by a MailFrame OnHide hook, so TSM swapping its own
+-- mailbox UI in hid the button, and switching back re-showed MailFrame without
+-- firing MAIL_SHOW again - no button. With no hook, the button's visibility is
+-- its parent's, whatever another addon does to MailFrame.
+Testkit.Test("EnsureMailTriggerButton hooks no scripts on the mail frame", function()
+  local A = NewSendAddon()
+  local mailFrame = InstallFakeFrames()
+
+  A:EnsureMailTriggerButton()
+  A:EnsureMailTriggerButton()
+
+  Testkit.AssertEqual(#mailFrame.hookedScripts, 0,
+      "a hook that hides the button re-breaks the TSM switch-back")
+end)
+
+-- The button is built once and re-anchored on later opens, rather than a
+-- second one being stacked on the first.
+Testkit.Test("a second call reuses the trigger button and re-anchors it", function()
+  local A = NewSendAddon()
+  InstallFakeFrames()
+
+  local first = A:EnsureMailTriggerButton()
+  local second = A:EnsureMailTriggerButton()
+
+  Testkit.AssertEqual(first, second, "the button should be built once, not per mailbox open")
+  Testkit.AssertEqual(#second.points, 1, "ClearAllPoints should leave exactly one anchor behind")
+end)
+
+-- EnsureMailTriggerButton deliberately owns placement only. MAIL_SHOW shows
+-- the button and MAIL_CLOSED hides it; a build that also showed it would put
+-- two owners on one decision, which is the bug the comment above it records.
+Testkit.Test("EnsureMailTriggerButton does not decide whether the button shows", function()
+  local A = NewSendAddon()
+  InstallFakeFrames()
+
+  local button = A:EnsureMailTriggerButton()
+
+  Testkit.AssertEqual(button.shown, false, "showing is MAIL_SHOW's call, not the builder's")
+end)
+
+Testkit.Test("EnsureMailTriggerButton gives up quietly when MailFrame is absent", function()
+  local A = NewSendAddon()
+  InstallFakeFrames()
+  _G.MailFrame = nil
+
+  Testkit.AssertEqual(A:EnsureMailTriggerButton(), nil,
+      "MAIL_SHOW retries the next frame; building against no parent must not happen")
+end)
+
 return true

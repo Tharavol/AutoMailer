@@ -134,18 +134,39 @@ function A:ArmSendWatchdog()
   end)
 end
 
--- Creates the button if it doesn't exist yet and (re)anchors it to the mail
--- frame, returning it. Deliberately does not decide whether it should be
--- visible: MAIL_SHOW shows it, and MAIL_CLOSED plus MailFrame's own OnHide
--- hide it. This used to also show/hide based on MailFrame:IsShown(), while
--- the caller unconditionally showed it afterwards - two places owning one
--- decision, and the caller always won, because MailFrame isn't necessarily
--- shown yet at the moment MAIL_SHOW fires.
+--[[
+  Creates the button if it doesn't exist yet and (re)anchors it to the mail
+  frame, returning it. Deliberately does not decide whether it should be
+  visible: MAIL_SHOW shows it and MAIL_CLOSED hides it. This used to also
+  show/hide based on MailFrame:IsShown(), while the caller unconditionally
+  showed it afterwards - two places owning one decision, and the caller always
+  won, because MailFrame isn't necessarily shown yet at the moment MAIL_SHOW
+  fires.
+
+  The button is a child of MailFrame rather than of UIParent, which is what
+  keeps it drawn with the mailbox rather than under other UI (#86). It used to
+  be a UIParent child that copied MailFrame's strata and level+5, but a frame
+  level only orders siblings inside one parent's hierarchy: an unrelated
+  UIParent child holding MailFrame's numbers is not ordered against MailFrame's
+  own descendants at all, so anything in that strata with a higher level drew
+  over it. Parenting hands both strata and ordering to the frame system, and no
+  explicit strata or level is set here on purpose - a child tracks its parent
+  automatically, including when the UIPanel system raises MailFrame, which an
+  absolute level pinned at open time would not.
+
+  Parenting also settles #87. Showing was driven by MAIL_SHOW alone and hiding
+  by a MailFrame OnHide hook, so an addon that swaps its own mailbox UI in
+  (TSM) hid MailFrame and took the button with it - and switching back re-shows
+  MailFrame without firing MAIL_SHOW again, leaving no button. A child's
+  visibility follows its parent's with nothing hooked, so the button now
+  appears and disappears exactly with the Blizzard mail UI whatever another
+  addon does to it, without this code having to know the mechanism.
+]]
 function A:EnsureMailTriggerButton()
   if not MailFrame then return nil end
 
   if not A.mailTriggerButton then
-    local button = CreateFrame("Button", "AutoMailerMailButton", UIParent, "UIPanelButtonTemplate")
+    local button = CreateFrame("Button", "AutoMailerMailButton", MailFrame, "UIPanelButtonTemplate")
     button:SetSize(140, 24)
     button:SetText(L["Send Mail"])
     button:SetScript("OnClick", function()
@@ -154,17 +175,8 @@ function A:EnsureMailTriggerButton()
     A.mailTriggerButton = button
   end
 
-  if not A.mailFrameHooked then
-    MailFrame:HookScript("OnHide", function()
-      A:HideMailTriggerButton()
-    end)
-    A.mailFrameHooked = true
-  end
-
   A.mailTriggerButton:ClearAllPoints()
   A.mailTriggerButton:SetPoint("TOP", MailFrame, "TOP", 0, 30)
-  A.mailTriggerButton:SetFrameStrata(MailFrame:GetFrameStrata())
-  A.mailTriggerButton:SetFrameLevel(MailFrame:GetFrameLevel() + 5)
 
   return A.mailTriggerButton
 end
