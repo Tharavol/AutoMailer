@@ -2,10 +2,15 @@
 
 All notable changes to AutoMailer are documented in this file.
 
-## [6.4] - Unreleased
+## [6.3.2] - 2026-08-24
+
+### Fixed
+- **Items you never added no longer appear in your mailing rules** ([#88](https://github.com/Tharavol/AutoMailer/issues/88)). Shift-clicking an item used to add it to your rules, and it fired on far more clicks than it should have, so items nobody added were quietly picking up rules and then being mailed away on the next run. Adding a rule is now only ever done by dropping an item on the options panel.
+- **The Send Mail button no longer draws underneath other UI** ([#86](https://github.com/Tharavol/AutoMailer/issues/86)). It sat outside the mailbox's own frame hierarchy while holding a copy of the mailbox's layer numbers, which meant nothing actually ordered it against the frames it was overlapping. It is now part of the mailbox frame, so the client draws it with the mailbox.
+- **The Send Mail button comes back when you switch from TSM's mailing window to the default mail UI** ([#87](https://github.com/Tharavol/AutoMailer/issues/87)). Opening the mailbox was the only thing that put the button on screen, so an addon that swapped its own mailbox UI in took the button away and clicking back to the Blizzard one didn't bring it back. The button now follows the default mail window's own visibility.
 
 ### Removed
-- **Shift-clicking an item no longer adds it to your mailing rules** ([#88](https://github.com/Tharavol/AutoMailer/issues/88)). This was the cause of items appearing in the rules that nobody added, and then being mailed away on the next run. Drag an item onto the list to add it, or pick it up and click **Add Item** - both unchanged, and now the only ways in.
+- **Shift-clicking an item no longer adds it to your mailing rules**, because of the bug above. Drag an item onto the list to add it, or pick it up and click **Add Item** - both unchanged, and now the only ways in.
 
 ### Changed
 - Adding an item to your rules now says so in chat. It used to happen silently, which is most of why the bug above went unnoticed until the items had already been mailed.
@@ -13,16 +18,8 @@ All notable changes to AutoMailer are documented in this file.
 ### Internal
 - The shift-click hook was removed rather than repaired, because the click it wanted was never distinguishable from clicks meant for something else. `HandleModifiedItemClick` fires for *every* modified click, so ctrl-click and alt-click added rules too; `ContainerFrameItemButtonMixin:OnModifiedClick` calls it *before* its own split-stack branch, so shift-clicking a stack to split it reached the hook first; and narrowing to a bare shift-click still was not enough, because the container guard was `IsBagAndSlot()` and warband bank tabs are bag indices 12-16 - ordinary bag-and-slot containers - so shift-clicking in the warbank added a rule as well. Each was a real gesture belonging to something else, and the list was not obviously finished.
 - A drop has none of that ambiguity: nothing else claims an item dropped onto the options panel, and it cannot fire without the panel being open and the player aiming at it.
-- Debug logging (`/am debug`) now records every rule addition with its itemID and where it came from. That is what identified the warbank case, so it stays.
-
-## [6.3.2] - Unreleased
-
-### Fixed
-- **The Send Mail button no longer draws underneath other UI** ([#86](https://github.com/Tharavol/AutoMailer/issues/86)). It sat outside the mailbox's own frame hierarchy while holding a copy of the mailbox's layer numbers, which meant nothing actually ordered it against the frames it was overlapping. It is now part of the mailbox frame, so the client draws it with the mailbox.
-- **The Send Mail button comes back when you switch from TSM's mailing window to the default mail UI** ([#87](https://github.com/Tharavol/AutoMailer/issues/87)). Opening the mailbox was the only thing that put the button on screen, so an addon that swapped its own mailbox UI in took the button away and clicking back to the Blizzard one didn't bring it back. The button now follows the default mail window's own visibility.
-
-### Internal
-- Both fixes are the same one-line change of the button's parent, replacing the explicit strata, frame level and `OnHide` hook that were standing in for it. Strata and draw order now track the mail frame automatically, including when the UIPanel system raises it - which an absolute frame level set at mailbox-open time would not have.
+- Debug logging (`/am debug`) now records every rule addition with its itemID. That is what identified the warbank case, so it stays.
+- The two Send Mail button fixes are the same one-line change of the button's parent, replacing the explicit strata, frame level and `OnHide` hook that were standing in for it. Strata and draw order now track the mail frame automatically, including when the UIPanel system raises it - which an absolute frame level set at mailbox-open time would not have.
 - The suite is up from 113 tests to 119, covering the button's placement decisions directly for the first time.
 
 ## [6.3.1] - 2026-08-11
