@@ -329,10 +329,10 @@ end
 
 -- Two kinds of rule live in the same list, distinguished by whether the rule
 -- carries an itemID:
---   * itemID set (added by shift-clicking or dragging an item, or by typing a
---     name the client resolves to a real item) - matches that exact item and
---     nothing else, so a rule for Linen Cloth doesn't also sweep up Linen
---     Cloth Bandages.
+--   * itemID set (added by dragging an item onto the options panel, or by
+--     typing a name the client resolves to a real item) - matches that exact
+--     item and nothing else, so a rule for Linen Cloth doesn't also sweep up
+--     Linen Cloth Bandages.
 --   * itemID nil (a name rule, or one migrated from the pre-4.9 text list) -
 --     matches any item whose name contains the rule's text, so "Ore" still
 --     catches every ore and existing setups behave as they did before.

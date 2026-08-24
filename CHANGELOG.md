@@ -2,6 +2,19 @@
 
 All notable changes to AutoMailer are documented in this file.
 
+## [6.4] - Unreleased
+
+### Removed
+- **Shift-clicking an item no longer adds it to your mailing rules** ([#88](https://github.com/Tharavol/AutoMailer/issues/88)). This was the cause of items appearing in the rules that nobody added, and then being mailed away on the next run. Drag an item onto the list to add it, or pick it up and click **Add Item** - both unchanged, and now the only ways in.
+
+### Changed
+- Adding an item to your rules now says so in chat. It used to happen silently, which is most of why the bug above went unnoticed until the items had already been mailed.
+
+### Internal
+- The shift-click hook was removed rather than repaired, because the click it wanted was never distinguishable from clicks meant for something else. `HandleModifiedItemClick` fires for *every* modified click, so ctrl-click and alt-click added rules too; `ContainerFrameItemButtonMixin:OnModifiedClick` calls it *before* its own split-stack branch, so shift-clicking a stack to split it reached the hook first; and narrowing to a bare shift-click still was not enough, because the container guard was `IsBagAndSlot()` and warband bank tabs are bag indices 12-16 - ordinary bag-and-slot containers - so shift-clicking in the warbank added a rule as well. Each was a real gesture belonging to something else, and the list was not obviously finished.
+- A drop has none of that ambiguity: nothing else claims an item dropped onto the options panel, and it cannot fire without the panel being open and the player aiming at it.
+- Debug logging (`/am debug`) now records every rule addition with its itemID and where it came from. That is what identified the warbank case, so it stays.
+
 ## [6.3.2] - Unreleased
 
 ### Fixed

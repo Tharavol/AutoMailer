@@ -7,7 +7,7 @@ Shipped folder, slash commands and chat output are still `AutoMailer` — see [I
 ## Features
 
 - **One-click sending** — opens the mailbox, click "Send Mail", and AutoMailer attaches and sends everything that matches your rules. Run it as many times as you like; it just picks up whatever's left in your bags.
-- **Per-item recipient rules** — a table of rules, one row per item, each with the item's icon, its name, and its own recipient. A blank recipient falls back to your default Recipient. Build it by shift-clicking or dragging items straight out of your bags.
+- **Per-item recipient rules** — a table of rules, one row per item, each with the item's icon, its name, and its own recipient. A blank recipient falls back to your default Recipient. Build it by dragging items straight out of your bags.
 - **Name matching** — a second table for rules that match by text instead of by item, so `Ore` mails every ore. Kept separate from the item table, because a text rule doesn't name one item and so has no icon to show.
 - **Retain a stash** — each rule has a Retain count for how many of that item to leave in your bags instead of mailing every one you're holding. Defaults to 0 (mail all of them), and applies to the total held across every bag, not per stack.
 - **Auto-mail crafting reagents** — optionally sends everything sitting in your Reagent Bag.
@@ -15,8 +15,7 @@ Shipped folder, slash commands and chat output are still `AutoMailer` — see [I
 - **Excess gold mailing** — optionally mails gold above a configurable threshold to your Recipient, automatically accounting for mail postage so your balance lands exactly on the threshold. Since gold is the one part of a run that's genuinely awkward to undo, a run that would send gold asks for confirmation first by default (item-only runs still send in one click).
 - **Batching** — attaches up to 12 items per letter and automatically continues through every batch and recipient until everything's sent.
 - **Shortcuts**:
-  - Shift-click a bag item while the options panel is open to add it to your list.
-  - Drag a bag item onto the list to add it, or onto an existing row's icon to change what that row matches.
+  - Drag a bag item onto the list to add it, or onto an existing row's icon to change what that row matches. You can also pick an item up and click **Add Item**.
   - Optionally, shift-click while the mailbox is open to auto-start a send run (off by default — see Configuration).
 - **Global profile** — optionally share one set of rules across all of your characters instead of configuring each one separately.
 - **Unfamiliar-recipient warning** — AutoMailer remembers which characters have logged in on this account and gives a subtle, non-blocking nudge (a tinted recipient field, plus a line before a run starts) when a recipient doesn't match one of them, to catch a typo before it costs a whole run. Mailing outside the account — a guild bank alt, a friend — is completely normal, so this never refuses to send; it just takes a couple of logins on your other characters to warm up before it has anything to compare against.
@@ -47,7 +46,7 @@ Open the options panel with `/am` (or via the standard WoW AddOns options menu).
 Rules live in two tables, because there are two kinds of rule:
 
 - **Recipient** — the default recipient for matched items.
-- **Items to AutoMail** — rules that match one specific item. Each row has the item's icon, its name, a Retain count, and a recipient; leave a row's recipient blank to use the default Recipient (shown greyed in the field). Add rows by shift-clicking or dragging an item from your bags, or with **Add Item** while holding one on the cursor. The red X removes a row.
+- **Items to AutoMail** — rules that match one specific item. Each row has the item's icon, its name, a Retain count, and a recipient; leave a row's recipient blank to use the default Recipient (shown greyed in the field). Add rows by dragging an item from your bags onto the list, or with **Add Item** while holding one on the cursor. The red X removes a row.
 
   **Retain** caps how many of that item stay in your bags: a run mails only what you're holding above the Retain count, counting everything across all your bags rather than per stack. 0 (the default, shown dimmed) mails all of it.
 

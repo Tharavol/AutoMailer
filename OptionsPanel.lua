@@ -142,18 +142,28 @@ local function CreateItemTable(optionsPanel, anchorTo)
     end
   end
 
+  --[[
+    A rule addition used to be completely silent, which is most of why #88 went
+    unnoticed until the items had already been mailed: nothing said a rule had
+    appeared, and nothing recorded that it had. Every add now says so in chat
+    and logs the itemID behind it - which is what identified the warbank case,
+    so both stay even though the gesture that caused it is gone.
+  ]]
   local function AddItemByID(itemID, fallbackName)
     if not itemID then return false end
+    local itemName = C_Item.GetItemInfo(itemID) or fallbackName or ""
+    local displayName = (itemName ~= "" and itemName) or L["That item"]
     if A:FindAutoMailEntryByItemID(itemID) then
-      A:Print(string.format(L["%s is already in your list."],
-          C_Item.GetItemInfo(itemID) or fallbackName or L["That item"]))
+      A:Print(string.format(L["%s is already in your list."], displayName))
       return false
     end
     tinsert(A:GetAutoMailEntries(), {
       itemID = itemID,
-      itemName = C_Item.GetItemInfo(itemID) or fallbackName or "",
+      itemName = itemName,
       recipient = "",
     })
+    A:Log("Rule added: itemID", itemID, "name", itemName)
+    A:Print(string.format(L["Added %s to your mailing rules."], displayName))
     RefreshLists()
     return true
   end
@@ -174,6 +184,10 @@ local function CreateItemTable(optionsPanel, anchorTo)
     return AddItemByID(itemID, link and C_Item.GetItemInfo(link))
   end
 
+  -- Changes what an existing row matches rather than adding a rule, so it gets
+  -- the same debug line as an add: both are ways a rule can start matching
+  -- something the player didn't expect, which is the thing #88 made worth
+  -- being able to trace.
   local function ReplaceRowFromCursor(row)
     if not row.entry then return end
     local itemID = TakeCursorItem()
@@ -184,6 +198,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     end
     row.entry.itemID = itemID
     row.entry.itemName = C_Item.GetItemInfo(itemID) or row.entry.itemName
+    A:Log("Rule row changed: itemID", itemID, "name", row.entry.itemName)
     RefreshLists()
   end
 
@@ -512,15 +527,15 @@ local function CreateItemTable(optionsPanel, anchorTo)
     columnInset = 34,
     header = "Items to AutoMail",
     itemColumn = "Item",
-    instructions = "Shift-click or drag an item from your bags to add it. "
+    instructions = "Drag an item from your bags onto this list to add it. "
         .. "Leave a recipient blank to use the default Recipient. "
         .. "Retain keeps that many out of the mail.",
-    emptyText = "No items yet.\n\nShift-click an item in your bags or drag one onto this list.",
+    emptyText = "No items yet.\n\nDrag an item from your bags onto this list.",
     buttonText = "Add Item",
     buttonWidth = 110,
     onClick = function()
       if AddFromCursor() then return end
-      A:Print(L["Pick up or shift-click an item in your bags to add it, "
+      A:Print(L["Drag an item from your bags onto this list to add it, "
           .. "or use Add Name Rule to match items by name."])
     end,
   })
@@ -566,21 +581,34 @@ local function CreateItemTable(optionsPanel, anchorTo)
   end
 
   --[[
-    SHIFT CLICKING ITEMS INTO THE LIST
+    THERE IS DELIBERATELY NO CLICK HOOK HERE
 
-    ContainerFrameItemButton_OnModifiedClick no longer exists as an
-    overridable global as of patch 10.0 (bag item clicks moved into
-    ContainerFrameItemButtonMixin). HandleModifiedItemClick is the current
-    universal modified-click hook and is safe to post-hook with
-    hooksecurefunc instead of replacing a Blizzard global outright.
+    Rules are only ever added by putting an item on the cursor and dropping it
+    on this panel - onto a list, or onto Add Item. That is the whole gesture.
+
+    A shift-click hook used to sit here, post-hooking HandleModifiedItemClick,
+    and it was removed rather than repaired (#88). Every version of it added
+    rules nobody asked for, because the click it wanted is not distinguishable
+    from clicks meant for something else:
+
+      - HandleModifiedItemClick fires for EVERY modified click on an item, so
+        ctrl-click (dress up) and alt-click added rules too.
+
+      - ContainerFrameItemButtonMixin:OnModifiedClick calls it BEFORE its own
+        split-stack branch, so shift-clicking a stack in your bags to split it
+        reached this first.
+
+      - Narrowing to a bare shift-click still was not enough. The container
+        guard was itemLocation:IsBagAndSlot(), and warband bank tabs are bag
+        indices 12-16 - ordinary bag-and-slot containers - so shift-clicking
+        in the warbank sailed through and added a rule there too.
+
+    Each of those was a real gesture belonging to something else that this
+    happened to intercept, and the list was not obviously finished. A drop is
+    unambiguous: nothing else in the UI claims an item dropped onto this panel,
+    and it cannot fire without the panel being open and the player aiming at
+    it. Adding a click gesture back means re-opening all of the above.
   ]]
-  hooksecurefunc("HandleModifiedItemClick", function(itemLink, itemLocation)
-    if not itemLink then return end
-    if not (itemLocation and itemLocation.IsBagAndSlot and itemLocation:IsBagAndSlot()) then return end
-    if not optionsPanel:IsVisible() then return end
-
-    AddItemByID(A:GetItemIDFromLink(itemLink), C_Item.GetItemInfo(itemLink))
-  end)
 
   optionsPanel.RefreshItemList = RefreshLists
   -- Every row's placeholder shows the default Recipient, so editing that
