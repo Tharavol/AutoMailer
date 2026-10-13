@@ -1,4 +1,4 @@
-## Interface: 120100
+## Interface: 120105
 ## Title: AutoMailer Continued
 ## Author: RainForDays, Tharavol, MAI-Code-1-Flash, Claude
 ## Notes: Automatically mail items.
