@@ -11,10 +11,8 @@
 --
 -- SPDX-License-Identifier: GPL-3.0-only
 
---[[
-  The send state machine: takes a queue built by MailQueue.lua and works
-  through it one mail at a time, driven by MAIL_SUCCESS/MAIL_FAILED.
-]]
+-- The send state machine: works through a queue built by MailQueue.lua one
+-- mail at a time, driven by MAIL_SUCCESS/MAIL_FAILED.
 
 local _, A = ...
 
@@ -26,38 +24,21 @@ A.mailQueue = nil
 A.mailQueueIndex = 0
 A.mailTriggerButton = nil
 
--- Whether the gold confirmation is on screen waiting to be answered. Separate
--- from sendingMail, which only goes up once that popup is accepted: without
--- this, clicking the trigger button again while the dialog was open built a
--- second queue and stacked a second dialog behind the first.
+-- Session tally for /am list: recipient -> itemName -> count.
+A.itemsSent = {}
+
+-- The gold confirmation is on screen; blocks building a second queue.
 A.pendingConfirmation = false
 
--- Mails actually handed to SendMail this run, as opposed to positions worked
--- through in the queue. The completion message used to report mailQueueIndex,
--- which counts batches that were skipped for having nothing attachable too.
+-- Mails actually handed to SendMail this run (skipped batches excluded).
 A.mailsSent = 0
 
---[[
-  How long to wait for MAIL_SUCCESS or MAIL_FAILED after calling SendMail
-  before giving up on the run.
-
-  Every batch ends by handing off to the server and waiting for one of those
-  two events to drive the next one. If neither arrives, nothing else moves the
-  state machine: sendingMail stays true, every later click on the trigger
-  button answers "A mail send is already in progress.", and only closing the
-  mailbox clears it. awaitConfirmSent existed to catch exactly this and was
-  never read by anything - this is the missing half.
-
-  Generous on purpose. It is a stuck-run backstop, not a latency budget: a
-  slow server round-trip must never trip it, because aborting a run that is
-  merely slow would be worse than the stall it protects against.
-]]
+-- Seconds to wait for MAIL_SUCCESS/MAIL_FAILED before abandoning the run.
+-- A stuck-run backstop, not a latency budget, so it is generous.
 local SEND_CONFIRM_TIMEOUT = 20
 
--- Bumped every time a run starts or a batch is handed off, so a timer that
--- fires late can tell whether it is still guarding the send it was armed for.
--- Without it, a watchdog armed for batch 3 could abort batch 4 after batch 3
--- confirmed normally.
+-- Bumped on every run start and hand-off so a late watchdog timer can tell it
+-- is no longer guarding the current send.
 A.sendGeneration = 0
 
 local function BuildConfirmationText(summary)
@@ -89,18 +70,14 @@ StaticPopupDialogs["AUTOMAILER_CONFIRM_SEND"] = {
   OnCancel = function()
     A:Print(L["Send cancelled."])
   end,
-  -- Clears the re-entry guard however the dialog leaves the screen - accepted,
-  -- cancelled, or dismissed with Escape. Doing it here rather than in the two
-  -- button handlers means no dismissal path can leave the guard stuck on, with
-  -- the trigger button refusing every later run for the rest of the session.
+  -- Single release point for the guard, covering accept, cancel and Escape.
   OnHide = function()
     A.pendingConfirmation = false
   end,
   timeout = 0,
   whileDead = true,
   hideOnEscape = true,
-  -- Keeps the dialog off the low indices Blizzard's own popups use, the
-  -- standard way of avoiding taint from an addon-registered popup.
+  -- Avoids taint from sharing Blizzard's low popup indices.
   preferredIndex = 3,
 }
 
@@ -115,10 +92,7 @@ function A:ResetMailSendState()
   A.sendGeneration = A.sendGeneration + 1
 end
 
--- Arms the stuck-run backstop for the batch just handed to SendMail. Fires
--- only if that same batch is still unconfirmed when the timeout elapses:
--- ResetMailSendState and every subsequent hand-off bump the generation, so a
--- stale timer recognizes itself and does nothing.
+-- Arms the stuck-run backstop for the batch just handed to SendMail.
 function A:ArmSendWatchdog()
   A.sendGeneration = A.sendGeneration + 1
   local generation = A.sendGeneration
@@ -135,32 +109,10 @@ function A:ArmSendWatchdog()
 end
 
 --[[
-  Creates the button if it doesn't exist yet and (re)anchors it to the mail
-  frame, returning it. Deliberately does not decide whether it should be
-  visible: MAIL_SHOW shows it and MAIL_CLOSED hides it. This used to also
-  show/hide based on MailFrame:IsShown(), while the caller unconditionally
-  showed it afterwards - two places owning one decision, and the caller always
-  won, because MailFrame isn't necessarily shown yet at the moment MAIL_SHOW
-  fires.
-
-  The button is a child of MailFrame rather than of UIParent, which is what
-  keeps it drawn with the mailbox rather than under other UI (#86). It used to
-  be a UIParent child that copied MailFrame's strata and level+5, but a frame
-  level only orders siblings inside one parent's hierarchy: an unrelated
-  UIParent child holding MailFrame's numbers is not ordered against MailFrame's
-  own descendants at all, so anything in that strata with a higher level drew
-  over it. Parenting hands both strata and ordering to the frame system, and no
-  explicit strata or level is set here on purpose - a child tracks its parent
-  automatically, including when the UIPanel system raises MailFrame, which an
-  absolute level pinned at open time would not.
-
-  Parenting also settles #87. Showing was driven by MAIL_SHOW alone and hiding
-  by a MailFrame OnHide hook, so an addon that swaps its own mailbox UI in
-  (TSM) hid MailFrame and took the button with it - and switching back re-shows
-  MailFrame without firing MAIL_SHOW again, leaving no button. A child's
-  visibility follows its parent's with nothing hooked, so the button now
-  appears and disappears exactly with the Blizzard mail UI whatever another
-  addon does to it, without this code having to know the mechanism.
+  Creates and anchors the button; visibility is left to MAIL_SHOW/MAIL_CLOSED.
+  Parented to MailFrame with no explicit strata or level, so it draws with the
+  mailbox (#86) and follows its visibility when another addon such as TSM
+  hides and re-shows it without firing MAIL_SHOW (#87).
 ]]
 function A:EnsureMailTriggerButton()
   if not MailFrame then return nil end
@@ -187,9 +139,7 @@ function A:HideMailTriggerButton()
   end
 end
 
--- Switches the mail frame to the "Send Mail" tab. SetSendMailShowing is not
--- a real Blizzard API function (it doesn't exist in the current client) -
--- clicking the tab button is the correct, documented way to do this.
+-- Switches the mail frame to the "Send Mail" tab.
 function A:ShowSendMailTab()
   if not MailFrame then
     A:Log("ShowSendMailTab: MailFrame does not exist")
@@ -209,9 +159,7 @@ function A:StartMailSend()
     return
   end
 
-  -- A queue is built against the bags as they are right now, so a second one
-  -- built while the first is still waiting to be accepted would be answering
-  -- for slots the first run is about to empty.
+  -- A second queue would target slots the pending run is about to empty.
   if A.pendingConfirmation then
     A:Print(L["A send is already waiting on the gold confirmation."])
     return
@@ -219,13 +167,11 @@ function A:StartMailSend()
 
   A:Log("StartMailSend invoked")
 
-  local recipient = A.db.recipient or ""
-  local boeRecipient = A.db.boeRecipient or ""
+  local recipient = A.db.recipient
+  local boeRecipient = A.db.boeRecipient
 
-  -- Rules can name their own recipient, so a blank default is not on its own
-  -- an unconfigured profile. This guard used to check only the two boxes on
-  -- the panels and refuse to build the queue, which meant a perfectly valid
-  -- rules-only setup never got the chance to match anything.
+  -- Rules can name their own recipient, so a blank default alone is not an
+  -- unconfigured profile.
   if #recipient == 0 and #boeRecipient == 0 and not A:HasRuleRecipient() then
     A:Print(L["No recipient configured."])
     return
@@ -244,15 +190,9 @@ function A:StartMailSend()
     return
   end
 
-  -- Items can be mailed back; gold above a threshold is the one part of a run
-  -- that's genuinely awkward to undo, so it gets a confirmation by default.
-  -- Item-only runs stay a single click, exactly as before.
   local summary = A:SummarizeQueue(queue)
 
-  -- A soft nudge, not a confirmation: mailing outside the account is
-  -- legitimate, so this never blocks the run, only names what's unfamiliar
-  -- before it goes out. Checked here rather than per-batch so it prints once
-  -- per run regardless of which path below sends it. See #26.
+  -- A soft nudge, never a block (#26); printed once per run.
   local unknownRecipients = {}
   for _, recipientName in ipairs(summary.recipients) do
     if not A:IsKnownCharacter(recipientName) then
@@ -281,8 +221,7 @@ function A:BeginMailRun(queue)
     return
   end
 
-  -- No "v" prefix here: the TOC version comes from the release tag, which
-  -- already carries one.
+  -- No "v" prefix: the release tag already carries one.
   A:Print(string.format(L["Starting AutoMailer send run (%s)"], A:GetVersion()))
 
   A.mailQueue = queue
@@ -314,32 +253,14 @@ function A:ProcessMailQueue()
 end
 
 --[[
-  How long to keep watching for a split-off stack to actually appear in the
-  bag slot it was moved into, and how often to look.
-
-  Moving an item between bag slots is a server round trip, not a local edit:
-  the slot reads back empty for a while after SplitContainerItem and the
-  placement that follows it. Three fixes for #81 failed on exactly this -
-  checking immediately, and checking one frame later via C_Timer.After(0) -
-  and read "still empty" as "the API doesn't work" rather than "not yet".
-
-  So this polls for the slot to actually hold what was put there, the same
-  way A:OnMailSuccess polls for GetMoney() to actually move rather than
-  guessing a delay.
-
-  The budget is deliberately far wider than what a healthy round trip needs:
-  a live split was measured landing after 12 checks (~1.2s), so a cap near
-  that would turn ordinary lag into skipped items. This is a backstop for a
-  move that is never coming, not a latency budget - the same reasoning as
-  SEND_CONFIRM_TIMEOUT above, and it stays well inside that 20s watchdog so a
-  stuck split still ends the run cleanly rather than racing it.
+  Polling for a split-off stack to land in its new slot. Moving an item is a
+  server round trip, so the slot reads empty for a while (#81). A live split
+  took ~1.2s; the 10s cap is a backstop that stays inside the 20s watchdog.
 ]]
 local SPLIT_SETTLE_INTERVAL = 0.1
 local SPLIT_SETTLE_ATTEMPTS = 100
 
--- Somewhere ordinary for a split-off partial stack to land. Only the ordinary
--- bags: this needs one free slot and those are what the rest of this file
--- already scans.
+-- A free slot in the ordinary bags for a split-off partial stack.
 function A:FindEmptyBagSlot()
   for bag = 0, NUM_BAG_SLOTS do
     local slotCount = A:GetContainerNumSlots(bag)
@@ -354,36 +275,20 @@ function A:FindEmptyBagSlot()
 end
 
 --[[
-  Attaches a single bag item to the given send-mail attachment slot using the
-  real Blizzard attach flow: pick the item up onto the cursor, then click the
-  attachment slot to drop it in. Reports to callback(attached, retainViolated)
-  and logs the outcome at every step so a failure can be pinpointed from chat.
+  Attaches one bag item (pick up, click the attachment slot) and reports to
+  callback(attached, retainViolated).
 
-  count is what the queue decided should ship, which a rule's Retain count
-  (#78) can trim below the slot's actual stack size. Attaching straight from a
-  cursor holding a freshly split stack does NOT work - confirmed live against
-  GetSendMailItem, which reported the whole pre-split stack as attached (#81).
-  The mail attachment button appears to resolve back to the source bag slot
-  rather than taking what the cursor holds.
-
-  What does work is making the partial stack an ordinary, settled stack of its
-  own first: split it off into a free bag slot, wait for it to actually land
-  there, and then attach that slot the completely ordinary way. The waiting is
-  the part earlier attempts got wrong (see SPLIT_SETTLE_* above) - the slot
-  reads empty for a while, and giving up on the first look reads a slow move
-  as a failed one.
-
-  Callback-based rather than returning a boolean precisely because of that
-  wait: the split path can only answer several frames later.
+  count can be below the stack size because of Retain (#78). Attaching a
+  freshly split stack straight from the cursor attaches the whole source
+  stack (confirmed live, #81), so a partial stack is split into a free slot,
+  waited on until it lands, then attached normally. Hence the callback.
 ]]
 function A:AttachItemToMail(bag, slot, attachIndex, itemLink, count, callback)
   A:Log("Attach start: bag=", bag, "slot=", slot, "attachIndex=", attachIndex, "item=", itemLink or "<unknown>",
       "count=", count or "<all>")
 
-  -- A queue isn't always consumed the instant it's built - a confirmation
-  -- dialog can sit in between, and earlier mails in the same run move items
-  -- around - so re-check that this slot still holds what was queued instead
-  -- of blindly picking up whatever happens to be there now.
+  -- The bags may have changed since the queue was built (confirmation dialog,
+  -- earlier mails), so check the slot still holds what was queued.
   local _, stackCount, _, _, _, _, currentLink = A:GetContainerItemInfo(bag, slot)
   if currentLink ~= itemLink then
     A:Log("Slot changed since the queue was built: expected", itemLink or "<unknown>",
@@ -397,10 +302,8 @@ function A:AttachItemToMail(bag, slot, attachIndex, itemLink, count, callback)
     A:ClearCursor()
   end
 
-  -- Everything from "the cursor holds what should go out" onwards, shared by
-  -- the plain and split paths. Verifies what the mail form says it actually
-  -- took: a Retain trim that silently attached more than it should is the
-  -- original bug, so it is reported rather than sent.
+  -- Shared by the plain and split paths. Checks what the form actually took,
+  -- so a Retain over-attach is pulled back rather than sent.
   local function attachFromCursor()
     if not A:CursorHasItem() then
       A:Log("Pickup failed: cursor is empty after pickup for", itemLink or "<unknown>")
@@ -410,8 +313,7 @@ function A:AttachItemToMail(bag, slot, attachIndex, itemLink, count, callback)
 
     A:AttachToSlot(attachIndex)
 
-    -- GetSendMailItem's 4th return is the attached quantity - confirmed live
-    -- against real output (#81), not assumed.
+    -- GetSendMailItem's 4th return is the attached quantity (confirmed live, #81).
     local attachedName, _, _, attachedCount = A:GetAttachedItem(attachIndex)
 
     if not attachedName then
@@ -495,15 +397,9 @@ function A:SendMailBatch(batch)
 
   A:SetSendRecipient(batch.recipient)
 
-  -- The excess-gold batch defers its money amount to here (see BuildMailQueue)
-  -- since postage isn't a flat fee and can't be predicted upfront. GetSendMailPrice()
-  -- only reports the real postage once the form actually has a recipient on it -
-  -- queried against a still-blank form (as this used to, right after ClearSendMail(),
-  -- before the recipient above was set) it under-reports, landing the balance short
-  -- by one postage's worth once the mail actually sends. Querying it now, with the
-  -- recipient already set and before any items get attached below (0 items for this
-  -- batch), reflects this specific mail's real postage. Must happen before
-  -- GetBatchSubject below, which depends on batch.money to pick the "Gold" subject.
+  -- Excess gold is resolved here: GetSendMailPrice() only reports real postage
+  -- once the form has a recipient, and before any attachments. Must precede
+  -- GetBatchSubject, which reads batch.money.
   if batch.goldThresholdCopper then
     local postage = A:GetSendMailPrice()
     batch.money = A:ExcessGoldToSend(A:GetMoney(), batch.goldThresholdCopper, postage)
@@ -516,18 +412,12 @@ function A:SendMailBatch(batch)
   local money = batch.money or 0
   A:SetSendMoney(money)
 
-  -- What this mail would add to the /am list tally, held on the batch rather
-  -- than folded straight in: attaching an item is not the same as sending it,
-  -- and a batch that fails from here on never went anywhere. A:CommitSentItems
-  -- applies this when MAIL_SUCCESS says the mail is really away.
+  -- Tally for /am list, applied by A:CommitSentItems only on MAIL_SUCCESS.
   local pendingSent = {}
   local attachedCount = 0
 
-  -- Attaches batch.items one at a time via callback rather than a plain loop
-  -- with a boolean return: a Retain violation (#78/#81) needs to abort the
-  -- rest of THIS batch outright (pull everything back out of the send form)
-  -- rather than just skip the one item, which a simple per-item loop can't
-  -- express cleanly partway through.
+  -- Callback-driven because attaching can wait on a split, and a Retain
+  -- violation (#78/#81) aborts the whole batch.
   local function attachNext(i)
     local item = batch.items[i]
     if not item then
@@ -536,9 +426,7 @@ function A:SendMailBatch(batch)
     end
 
     A:AttachItemToMail(item.bag, item.slot, i, item.itemLink, item.count, function(attached, retainViolated)
-      -- A Retain rule needed a partial stack that this client won't actually
-      -- split (#81) - pull everything this batch has attached so far back
-      -- into the bags and skip the whole batch rather than send the excess.
+      -- Pull back everything attached and skip the batch rather than over-send.
       if retainViolated then
         A:ClearSendForm()
         A:Print(string.format(L["Could not honor a Retain limit for %s; skipping this batch."], batch.recipient))
@@ -551,10 +439,7 @@ function A:SendMailBatch(batch)
       if attached then
         attachedCount = attachedCount + 1
         local itemName = A:GetItemInfo(item.itemLink) or item.itemLink
-        -- By stack size, not by attachment: an attachment is one slot, which
-        -- for most of what this addon mails is a stack of a couple hundred.
-        -- The tally counted attachments, so a full stack of Linen Cloth read
-        -- "Linen Cloth x1".
+        -- Counted by stack size, not by attachment.
         pendingSent[itemName] = (pendingSent[itemName] or 0) + (item.count or 1)
       end
       attachNext(i + 1)
@@ -564,11 +449,7 @@ function A:SendMailBatch(batch)
   attachNext(1)
 end
 
--- The rest of what SendMailBatch used to do inline once every item in the
--- batch has had an attach attempt: decide whether there was anything to send,
--- and either hand off to SendMail or skip the batch. Split out because
--- A:SendMailBatch's own attach loop is callback-driven (see attachNext above)
--- and this only runs once that recursion bottoms out.
+-- Runs once every item has had an attach attempt: sends the mail or skips it.
 function A:FinishSendMailBatch(batch, subject, money, attachedCount, pendingSent)
   batch.pendingSent = pendingSent
 
@@ -583,21 +464,13 @@ function A:FinishSendMailBatch(batch, subject, money, attachedCount, pendingSent
   A:Log("Calling SendMail to", batch.recipient, "with", attachedCount, "item(s) attached, money=", money,
       "subject=", subject)
   A.awaitConfirmSent = true
-  -- MAIL_SUCCESS confirms the mail queued server-side, but GetMoney() doesn't
-  -- necessarily reflect this mail's postage the instant that event fires -
-  -- recorded here so MAIL_SUCCESS can confirm the balance actually moved
-  -- before letting the next batch (e.g. an excess-gold batch reading GetMoney()
-  -- to compute its amount) proceed. See A:OnMailSuccess for why.
+  -- Lets A:OnMailSuccess wait for postage to reach GetMoney().
   A.moneyBeforeSend = A:GetMoney()
   A:ArmSendWatchdog()
   A:CommitSend(batch.recipient, subject)
   A.mailsSent = A.mailsSent + 1
 
-  -- Three cases, not two: the excess-gold batch carries no items at all, and
-  -- announcing "Sent 0 item(s) and 3306g to Siannodel" made the interesting
-  -- half of the sentence share billing with a zero. A mixed mail is only
-  -- theoretical today - BuildMailQueue gives the gold batch an empty item list
-  -- - but the branch stays honest rather than assuming that holds.
+  -- Gold batches carry no items; a mixed mail is not built today but handled.
   if attachedCount > 0 and money > 0 then
     A:Print(string.format(L["Sent %d item(s) and %s to %s"],
         attachedCount, C_CurrencyInfo.GetCoinTextureString(money), batch.recipient))
@@ -612,7 +485,6 @@ end
 function A:CommitSentItems(batch)
   if not batch or not batch.pendingSent then return end
 
-  A.itemsSent = A.itemsSent or {}
   local tally = A.itemsSent[batch.recipient]
   if not tally then
     tally = {}
@@ -632,19 +504,10 @@ function A:OnMailSuccess(mailID)
   A.awaitConfirmSent = false
   if not A.sendingMail then return end
 
-  -- This is the first point at which the mail is known to have gone, so it is
-  -- where its contents join the tally.
   A:CommitSentItems(A.mailQueue and A.mailQueue[A.mailQueueIndex])
 
-  -- GetMoney() doesn't necessarily update the instant MAIL_SUCCESS fires -
-  -- this mail's postage lands on the client's money value with a variable
-  -- delay (network latency dependent). A fixed 0.3s wait here used to just
-  -- guess that delay was over; when it wasn't, the next batch's excess-gold
-  -- math (see BuildMailQueue/SendMailBatch) read a stale, too-high GetMoney()
-  -- that still hadn't subtracted this mail's postage, silently landing the
-  -- final balance short by exactly that postage amount. Poll for the actual
-  -- change instead of guessing, with a generous fallback so a run can't stall
-  -- forever if postage was somehow already reflected before this ran.
+  -- GetMoney() reflects this mail's postage only after a variable delay, and the
+  -- next gold batch's math needs it. Poll for the change, capped at 2s.
   local moneyBeforeSend = A.moneyBeforeSend
   local attempts = 0
   local function waitForMoneyUpdate()

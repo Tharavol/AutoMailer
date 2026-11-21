@@ -135,6 +135,8 @@ local function InstallFakeMailForm(A, opts)
   -- A:IsDebugLogging reads this; pinned so a run here doesn't inherit whatever
   -- another test file happened to leave behind.
   _G.AutoMailer = { debugLogging = false }
+  -- The shape InitializeSavedVariables guarantees before any send can run.
+  _G.AutoMailerGlobal = { knownCharacters = {} }
 
   _G.C_AddOns = { GetAddOnMetadata = function() return "test" end }
   _G.NUM_BAG_SLOTS = opts.numBagSlots or 0

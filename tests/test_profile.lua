@@ -505,9 +505,24 @@ end)
 
 --[[ A:RecordKnownCharacter / A:IsKnownCharacter - the account-wide roster (#26) ]]
 
+Testkit.Test("InitializeSavedVariables gives the roster a clean list of names", function()
+  local A = NewA()
+  _G.AutoMailer = {}
+  _G.AutoMailerGlobal = { knownCharacters = { "Bankalt-EmeraldDream", 42, false } }
+
+  A:InitializeSavedVariables()
+  Testkit.AssertDeepEqual(AutoMailerGlobal.knownCharacters, { "Bankalt-EmeraldDream" })
+
+  _G.AutoMailerGlobal = { knownCharacters = "corrupt" }
+  A:InitializeSavedVariables()
+  Testkit.AssertDeepEqual(AutoMailerGlobal.knownCharacters, {})
+
+  _G.AutoMailer, _G.AutoMailerGlobal = nil, nil
+end)
+
 Testkit.Test("RecordKnownCharacter adds a Name-Realm entry, with spaces stripped from the realm", function()
   local A = NewA()
-  _G.AutoMailerGlobal = {}
+  _G.AutoMailerGlobal = { knownCharacters = {} }
 
   A:RecordKnownCharacter("Bankalt", "Emerald Dream")
 
@@ -528,13 +543,13 @@ end)
 
 Testkit.Test("RecordKnownCharacter ignores a blank name or realm", function()
   local A = NewA()
-  _G.AutoMailerGlobal = {}
+  _G.AutoMailerGlobal = { knownCharacters = {} }
 
   A:RecordKnownCharacter(nil, "Emerald Dream")
   A:RecordKnownCharacter("Bankalt", nil)
   A:RecordKnownCharacter("Bankalt", "")
 
-  Testkit.AssertEqual(AutoMailerGlobal.knownCharacters, nil, "nothing valid was ever recorded")
+  Testkit.AssertEqual(#AutoMailerGlobal.knownCharacters, 0, "nothing valid was ever recorded")
   _G.AutoMailerGlobal = nil
 end)
 

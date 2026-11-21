@@ -12,7 +12,7 @@ Shipped folder, slash commands and chat output are still `AutoMailer` — see [I
 - **Retain a stash** — each rule has a Retain count for how many of that item to leave in your bags instead of mailing every one you're holding. Defaults to 0 (mail all of them), and applies to the total held across every bag, not per stack.
 - **Auto-mail crafting reagents** — optionally sends everything sitting in your Reagent Bag.
 - **Auto-mail BoE items** — optionally mails Bind-on-Equip items to a separate BoE Recipient, with optional filters for item level (only below your character's level) and rarity (uncommon/rare/epic).
-- **Excess gold mailing** — optionally mails gold above a configurable threshold to your Recipient, automatically accounting for mail postage so your balance lands exactly on the threshold. Since gold is the one part of a run that's genuinely awkward to undo, a run that would send gold asks for confirmation first by default (item-only runs still send in one click).
+- **Excess gold mailing** — optionally mails gold above a configurable threshold to your Recipient, automatically accounting for mail postage so your balance lands exactly on the threshold. Since gold is the one part of a run that's genuinely awkward to undo, a run that would send gold can optionally ask for confirmation first (**Ask before sending gold**, off by default; item-only runs always send in one click).
 - **Batching** — attaches up to 12 items per letter and automatically continues through every batch and recipient until everything's sent.
 - **Shortcuts**:
   - Drag a bag item onto the list to add it, or onto an existing row's icon to change what that row matches. You can also pick an item up and click **Add Item**.
@@ -67,7 +67,7 @@ Rules live in two tables, because there are two kinds of rule:
   - **Limit rarity** — only auto-mail BoEs at or below a chosen rarity (Uncommon, Rare, or Epic).
 - **Send all Crafting Reagents** — mails everything in your Reagent Bag.
 - **Send gold above threshold to Recipient** — mails gold in excess of the configured threshold, netting out mail postage so your remaining balance matches the threshold exactly.
-  - **Ask before sending gold** — shows a confirmation (item/mail counts, recipients, approximate gold amount) before a run that includes a gold mail. On by default.
+  - **Ask before sending gold** — shows a confirmation (item/mail counts, recipients, approximate gold amount) before a run that includes a gold mail. Off by default.
 - **Shift-clicking a mailbox starts a send run** — the shift-click-to-auto-send shortcut. Off by default, since shift is a heavily-used modifier and this can kick off mailing gold before you've looked at anything.
 - **Enable debug logging** — same as `/am debug`.
 - **Display login message** — toggles the "AutoMailer loaded" chat message on login/reload.
@@ -81,6 +81,8 @@ Rules live in two tables, because there are two kinds of rule:
 ## Installation
 
 Place the `AutoMailer` folder in your `World of Warcraft\_retail_\Interface\AddOns` directory, then enable it at the character select screen's AddOns list.
+
+Source, issues and release notes: <https://github.com/Tharavol/AutoMailer> (release notes are in [CHANGELOG.md](CHANGELOG.md)).
 
 ## Development
 

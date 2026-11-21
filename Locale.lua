@@ -12,30 +12,15 @@
 -- SPDX-License-Identifier: GPL-3.0-only
 
 --[[
-  The translation seam. Every user-facing string in the addon goes through
-  A.L; nothing else in the codebase should hold a displayed string literal.
+  Every user-facing string goes through A.L. The key is the English text, and
+  a missing key returns itself, so untranslated strings fall back to English.
+  Interpolated strings use string.format so translators can reorder them.
+  Debug output (A:Log) is deliberately untranslated, for bug reports.
 
-  The key IS the English text, so there is no enUS table to keep in sync and
-  an untranslated client shows exactly what a reader of the source sees. A
-  missing key returns itself rather than nil, which means a typo'd or
-  not-yet-translated string degrades to English instead of erroring inside a
-  concatenation at the worst possible moment (mid send run).
-
-  Strings that interpolate use string.format rather than concatenation, so a
-  translator can reorder the substitutions - word order is exactly what
-  differs between languages, and a concatenated sentence can't express that.
-
-  Debug output (A:Log) is deliberately NOT routed through here. It exists to
-  be pasted into a bug report, so it should read the same whatever client
-  produced it.
-
-  Adding a translation: call A:RegisterLocale from a new file listed in the
-  TOC after this one, e.g.
+  Adding a translation: call A:RegisterLocale from a file listed in the TOC
+  after this one; only the running client's locale is applied.
 
     A:RegisterLocale("deDE", { ["No recipient configured."] = "..." })
-
-  Only the table matching the running client's locale is applied, so every
-  locale file can be shipped unconditionally.
 ]]
 
 local _, A = ...
@@ -46,15 +31,13 @@ local L = setmetatable({}, {
 
 A.L = L
 
--- Returns whether the translations were applied, which is what makes this
--- testable without a client: the locale comparison is the whole behavior.
+-- Returns whether the translations were applied.
 function A:RegisterLocale(locale, translations)
   if type(translations) ~= "table" then return false end
-  if locale ~= (GetLocale and GetLocale()) then return false end
+  if locale ~= GetLocale() then return false end
 
   for key, value in pairs(translations) do
-    -- Skip blanks so a half-finished translation file falls back to English
-    -- per string rather than displaying empty labels.
+    -- Blank values fall back to English rather than showing empty labels.
     if type(key) == "string" and type(value) == "string" and value ~= "" then
       rawset(L, key, value)
     end

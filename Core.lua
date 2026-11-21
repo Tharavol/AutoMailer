@@ -11,10 +11,8 @@
 --
 -- SPDX-License-Identifier: GPL-3.0-only
 
---[[
-  Shared utilities: chat output, and thin wrappers over the container/item
-  APIs so the rest of the addon never touches C_Container/C_Item directly.
-]]
+-- Shared utilities: chat output, and thin wrappers over the WoW APIs so the
+-- rest of the addon (and its tests) only touches them through A.
 
 local ADDON_NAME, A = ...
 
@@ -24,18 +22,12 @@ function A:GetVersion()
   return C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version") or "?"
 end
 
--- ".. tostringall(...)" only keeps tostringall's FIRST return value, since
--- concatenation isn't a multi-result context - every argument after the
--- first was silently getting dropped. strjoin's last argument position is a
--- multi-result context, so all of them make it into the message.
+-- strjoin, not "..": concatenation would keep only tostringall's first value.
 function A:Print(...)
   DEFAULT_CHAT_FRAME:AddMessage(A.addonName .. "- " .. strjoin(" ", tostringall(...)))
 end
 
--- Exposed separately from A:Log because some debug output is worth more than
--- it costs to produce: BuildMailQueue's run summary has to accumulate skip
--- reasons while it scans, which is wasted work when nobody will read it.
--- Callers that only format strings should just call A:Log and let it decide.
+-- Lets callers skip expensive debug-only work (BuildMailQueue's skip summary).
 function A:IsDebugLogging()
   return (A.meta and A.meta.debugLogging) and true or false
 end
@@ -69,26 +61,19 @@ function A:GetItemIDFromLink(itemLink)
   return (C_Item.GetItemInfoInstant(itemLink))
 end
 
--- Asks the client to cache an item's data. A bag scan that finds an item
--- GetItemInfo can't answer for yet has to skip it (see BuildMailQueue); this
--- is what makes the next run able to classify it properly.
+-- Asks the client to cache an item's data, so the next run can classify an
+-- item GetItemInfo couldn't answer for yet.
 function A:RequestItemDataLoad(itemID)
-  if itemID and C_Item and C_Item.RequestLoadItemDataByID then
+  if itemID then
     C_Item.RequestLoadItemDataByID(itemID)
   end
 end
 
--- Picks up a bag item onto the cursor, and the cursor state around it - the
--- first leg of the real attach flow (pick up, then click the attachment
--- slot). Grouped with the container wrappers above rather than the mail-form
--- ones below since picking an item up isn't specific to mailing it.
 function A:PickupContainerItem(bag, slot)
   C_Container.PickupContainerItem(bag, slot)
 end
 
--- Splits count off a slot's stack onto the cursor, leaving the rest behind.
--- A:AttachItemToMail uses this plus a placement into a free slot to turn a
--- Retain-trimmed amount into an ordinary stack it can attach (see #81).
+-- Splits count off a slot's stack onto the cursor (Retain trimming, #81).
 function A:SplitContainerItem(bag, slot, count)
   C_Container.SplitContainerItem(bag, slot, count)
 end
@@ -101,50 +86,28 @@ function A:ClearCursor()
   ClearCursor()
 end
 
---[[
-  Money and player state, wrapped for the same reason the container and item
-  APIs above are: nothing outside this file should reach for the game's
-  globals directly.
-
-  These three gate the excess-gold math specifically, which is the one part of
-  a send run that can't be undone by mailing things back, and the part that has
-  produced the most bugs (see the 4.7/4.8 postage notes and the 5.x shortfall).
-  Going through here is what lets that math be driven by tests instead of only
-  ever being exercised live.
-]]
+-- Money and player state; wrapped so tests can drive the excess-gold math.
 function A:GetMoney()
   return GetMoney()
 end
 
--- Postage for whatever is currently on the send-mail form. Not a flat fee: it
--- scales with attachments, and only reports honestly once the form has a
--- recipient on it. See SendMailBatch for why it's queried where it is.
+-- Postage for what is currently on the send-mail form. Scales with
+-- attachments and is only accurate once the form has a recipient.
 function A:GetSendMailPrice()
-  return (GetSendMailPrice and GetSendMailPrice()) or 0
+  return GetSendMailPrice()
 end
 
 function A:GetPlayerLevel()
   return UnitLevel("PLAYER")
 end
 
--- Whether this specific bag slot's item is bound to the character, which is
--- what makes it unmailable.
---
--- This used to be answered by building a hidden GameTooltip per bag slot,
--- calling SetBagItem on it, and string-matching ITEM_SOULBOUND against its
--- first four lines - fragile (the binding line isn't always in the first
--- four), slow (a tooltip rebuild for every occupied slot on every run), and
--- exactly the sort of tooltip scraping Blizzard keeps tightening. C_Item.IsBound
--- answers the same question directly off the item instance.
---
--- Warband-bound-until-equipped gear reports as bound but can still be mailed
--- to your own characters, which is the main thing people use this addon for,
--- so it's explicitly let through to match the old tooltip check's behavior.
+-- Whether this bag slot's item is bound and so unmailable. Warbound-until-
+-- equipped gear reports as bound but can be mailed to your own characters.
 function A:ItemIsSoulbound(bag, slot)
   local location = ItemLocation:CreateFromBagAndSlot(bag, slot)
-  if not location or not location:IsValid() then return false end
+  if not location:IsValid() then return false end
   if not C_Item.IsBound(location) then return false end
-  if C_Item.IsBoundToAccountUntilEquip and C_Item.IsBoundToAccountUntilEquip(location) then
+  if C_Item.IsBoundToAccountUntilEquip(location) then
     return false
   end
   return true
@@ -154,18 +117,12 @@ function A:GetPlayerName()
   return UnitName("player")
 end
 
--- The character's home realm, with no per-character resolution needed - used
--- alongside A:GetPlayerName to build the "Name-Realm" form recorded into the
--- known-character roster (see A:RecordKnownCharacter).
 function A:GetRealmName()
   return GetRealmName()
 end
 
--- Recipients are matched against the currently logged-in character's name so
--- rules that happen to target yourself (e.g. a global profile rule meant for
--- a different alt) don't queue a pointless self-mail. Strips an optional
--- "-Realm" suffix off the recipient before comparing, since A:GetPlayerName
--- never includes one.
+-- Whether recipient is the logged-in character (ignoring any "-Realm"
+-- suffix), so a global-profile rule doesn't queue a self-mail.
 function A:IsCurrentCharacter(recipient)
   if not recipient or recipient == "" then return false end
   local playerName = A:GetPlayerName()
@@ -174,12 +131,7 @@ function A:IsCurrentCharacter(recipient)
   return recName:lower() == playerName:lower()
 end
 
---[[
-  The send-mail form, wrapped for the same reason as everything above:
-  Send.lua's batch-sequencing state machine is the riskiest code in the
-  addon, and it owns the irreversible gold math, so it needs to be drivable
-  by tests rather than only ever exercised live. See issue #15.
-]]
+-- The send-mail form, wrapped so tests can drive Send.lua's state machine (#15).
 function A:ClearSendForm()
   ClearSendMail()
 end
@@ -194,19 +146,12 @@ function A:SetSendSubject(text)
   SendMailSubjectEditBox:SetCursorPosition(0)
 end
 
--- Money isn't a SendMail() argument. MoneyInputFrame_SetCopper only updates
--- the SendMailMoney editbox's displayed text - the actual amount staged for
--- SendMail() is only committed when Blizzard's own send-mail button handler
--- reads that editbox and calls SetSendMailMoney(). Since Send.lua calls
--- SendMail() directly and skips that handler, both must be called here or
--- the mail goes out with no gold attached.
+-- MoneyInputFrame_SetCopper only updates the displayed amount; SetSendMailMoney
+-- stages it. Blizzard's send button does the latter, but SendMail() is called
+-- directly here, so both are needed or the mail goes out with no gold.
 function A:SetSendMoney(copper)
-  if MoneyInputFrame_SetCopper and SendMailMoney then
-    MoneyInputFrame_SetCopper(SendMailMoney, copper)
-  end
-  if SetSendMailMoney then
-    SetSendMailMoney(copper)
-  end
+  MoneyInputFrame_SetCopper(SendMailMoney, copper)
+  SetSendMailMoney(copper)
 end
 
 function A:AttachToSlot(index)

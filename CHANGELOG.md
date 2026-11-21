@@ -7,6 +7,14 @@ All notable changes to AutoMailer are documented in this file.
 ### Fixed
 - **Mailing gold no longer ends in a Lua error** ([#95](https://github.com/Tharavol/AutoMailer/issues/95)). The gold confirmation and the "Sent ... to ..." messages called `GetCoinTextureString`, a global the current client no longer has. They now use `C_CurrencyInfo.GetCoinTextureString`, which exists on retail and on WoW Forever.
 
+### Changed
+- The README no longer claims "Ask before sending gold" is on by default; it has been off by default since [#71](https://github.com/Tharavol/AutoMailer/issues/71).
+
+### Internal
+- Trimmed comments that narrated bug history or restated the code, keeping the ones that explain client behaviour ([#89](https://github.com/Tharavol/AutoMailer/issues/89)).
+- Saved variables are validated once at load, including the known-character roster, and the downstream re-checks and lazy initialisers are gone ([#90](https://github.com/Tharavol/AutoMailer/issues/90)). Existence checks and fallbacks for APIs present on both retail and WoW Forever (the pre-Settings options API, `BackdropTemplateMixin`, `C_Item.IsBoundToAccountUntilEquip`, mail-form functions) were removed with them.
+- The long `## X-ReleaseNotes` field and the redundant `## DefaultState: enabled` are gone from the TOC; the feature summary lives in README.md ([#91](https://github.com/Tharavol/AutoMailer/issues/91)).
+
 ## [6.3.2] - 2026-08-24
 
 ### Fixed

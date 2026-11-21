@@ -15,43 +15,19 @@ local _, A = ...
 
 local L = A.L
 
--- Registers the main canvas panel plus any subcategory pages hanging off it.
--- Registration reparents the canvas frames, so this runs once both panels are
--- fully built rather than at frame-creation time.
+-- Registration reparents the canvas frames, so it runs once both panels are built.
 local function RegisterCategories(mainPanel, subPanels)
-  if Settings and Settings.RegisterCanvasLayoutCategory then
-    local category = Settings.RegisterCanvasLayoutCategory(mainPanel, mainPanel.name)
-    if category then
-      Settings.RegisterAddOnCategory(category)
-      mainPanel.category = category
-
-      if Settings.RegisterCanvasLayoutSubcategory then
-        for _, sub in ipairs(subPanels) do
-          sub.category = Settings.RegisterCanvasLayoutSubcategory(category, sub, sub.name)
-        end
-      end
-      return true
-    end
+  local category = Settings.RegisterCanvasLayoutCategory(mainPanel, mainPanel.name)
+  Settings.RegisterAddOnCategory(category)
+  mainPanel.category = category
+  for _, sub in ipairs(subPanels) do
+    sub.category = Settings.RegisterCanvasLayoutSubcategory(category, sub, sub.name)
   end
-
-  if InterfaceOptions_AddCategory then
-    InterfaceOptions_AddCategory(mainPanel)
-    for _, sub in ipairs(subPanels) do
-      sub.parent = mainPanel.name
-      InterfaceOptions_AddCategory(sub)
-    end
-    return true
-  end
-
-  return false
 end
 
 local ROW_HEIGHT = 26
 local LIST_WIDTH = 280
--- The two lists share the left column of a canvas panel that does not scroll,
--- so their heights are a budget, not a preference: together with the headers
--- and buttons around them they have to stay inside what the single 300px list
--- used to occupy.
+-- The two lists share a non-scrolling column, so their heights are a budget.
 local ITEM_LIST_HEIGHT = 156
 local NAME_LIST_HEIGHT = 78
 local UNKNOWN_ITEM_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -66,18 +42,9 @@ local LIST_BACKDROP = {
 }
 
 --[[
-  Builds the two rule tables: "Items to AutoMail" and "Name Matches".
-
-  Both are ScrollBox-backed views onto the same A.db.items list, split by
-  whether a rule carries an itemID (see A:SplitAutoMailEntries). The split is
-  what the user sees, because the two kinds of rule behave differently: an
-  itemID rule identifies one item, so it can show that item's icon and matches
-  only that item; a name rule matches by substring, so there is no single item
-  to draw an icon for. A rule moves between the tables by gaining or losing its
-  itemID, which only happens in CommitName.
-
-  Returns the Items backdrop frame so the caller can anchor the rest of the
-  panel beside it.
+  Builds the "Items to AutoMail" and "Name Matches" tables: two ScrollBox views
+  onto A.db.items, split by whether a rule has an itemID. A rule moves between
+  them only in CommitName. Returns the Items backdrop for anchoring.
 ]]
 local function CreateItemTable(optionsPanel, anchorTo)
   local itemList, nameList
@@ -92,8 +59,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     row.RecipientHint:SetText(fallback ~= "" and fallback or L["no default set"])
     row.RecipientHint:SetShown(isEmpty and not row.Recipient.hasFocus)
 
-    -- A subtle, non-blocking nudge (see #26): a blank row falls back to the
-    -- default Recipient, which isn't this row's problem to flag.
+    -- Non-blocking nudge (#26); a blank row uses the default Recipient.
     if not isEmpty and not A:IsKnownCharacter(typed) then
       row.Recipient:SetTextColor(1, 0.82, 0.4)
     else
@@ -101,10 +67,8 @@ local function CreateItemTable(optionsPanel, anchorTo)
     end
   end
 
-  -- Only ever called for rows in the Items table, which are the only rows with
-  -- an IconButton. The question mark is no longer a rule-kind cue - name rules
-  -- live in their own table now - so it only stands in for an itemID whose
-  -- item data the client can't produce at all.
+  -- Items-table rows only. The question mark stands in for an itemID the client
+  -- has no data for.
   local function UpdateRowItem(row, entry)
     local icon, quality
 
@@ -118,9 +82,8 @@ local function CreateItemTable(optionsPanel, anchorTo)
           row.Name:SetText(name)
           row.Name:SetCursorPosition(0)
         end
-      elseif Item and Item.CreateFromItemID then
-        -- Item data isn't cached yet; redraw this row once the client has it,
-        -- but only if the row hasn't been recycled onto a different rule.
+      else
+        -- Not cached yet; redraw once loaded, unless the row was recycled.
         local item = Item:CreateFromItemID(entry.itemID)
         if not item:IsItemEmpty() then
           item:ContinueOnItemLoad(function()
@@ -142,13 +105,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     end
   end
 
-  --[[
-    A rule addition used to be completely silent, which is most of why #88 went
-    unnoticed until the items had already been mailed: nothing said a rule had
-    appeared, and nothing recorded that it had. Every add now says so in chat
-    and logs the itemID behind it - which is what identified the warbank case,
-    so both stay even though the gesture that caused it is gone.
-  ]]
+  -- Every add is announced in chat and logged with its itemID (#88).
   local function AddItemByID(itemID, fallbackName)
     if not itemID then return false end
     local itemName = C_Item.GetItemInfo(itemID) or fallbackName or ""
@@ -161,6 +118,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
       itemID = itemID,
       itemName = itemName,
       recipient = "",
+      retain = 0,
     })
     A:Log("Rule added: itemID", itemID, "name", itemName)
     A:Print(string.format(L["Added %s to your mailing rules."], displayName))
@@ -168,9 +126,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     return true
   end
 
-  -- Handles both halves of the drag flow: an actual drag-and-drop (via
-  -- OnReceiveDrag) and the pick-up-then-click flow, which delivers the item
-  -- on the cursor rather than as a drag.
+  -- Serves both drag-and-drop and pick-up-then-click.
   local function TakeCursorItem()
     local kind, id, link = GetCursorInfo()
     if kind ~= "item" then return nil end
@@ -184,10 +140,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     return AddItemByID(itemID, link and C_Item.GetItemInfo(link))
   end
 
-  -- Changes what an existing row matches rather than adding a rule, so it gets
-  -- the same debug line as an add: both are ways a rule can start matching
-  -- something the player didn't expect, which is the thing #88 made worth
-  -- being able to trace.
+  -- Logged like an add, since it also changes what a rule matches (#88).
   local function ReplaceRowFromCursor(row)
     if not row.entry then return end
     local itemID = TakeCursorItem()
@@ -215,13 +168,11 @@ local function CreateItemTable(optionsPanel, anchorTo)
     RefreshLists()
   end
 
-  -- The resolver A:ApplyRuleName decides rule kind with. GetItemInfoInstant
-  -- only answers for items in the client's local cache, so the same name can
-  -- resolve in one session and not the next; that is survivable because a name
-  -- rule spelling an item out in full still matches that item, just loosely.
+  -- GetItemInfoInstant only resolves names in the local cache, so a name may
+  -- resolve in one session and not the next; a full-name rule still matches.
   local function ResolveItemID(itemName)
     local itemID = C_Item.GetItemInfoInstant(itemName)
-    if type(itemID) ~= "number" then return nil end
+    if not itemID then return nil end
     return itemID, C_Item.GetItemInfo(itemID)
   end
 
@@ -230,8 +181,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     row.Name:SetCursorPosition(0)
   end
 
-  -- The decision itself lives in A:ApplyRuleName, where it can be tested
-  -- without a frame; this is just the display half of it.
+  -- Display half of A:ApplyRuleName.
   local function CommitName(row)
     if not row.entry then return end
 
@@ -255,20 +205,17 @@ local function CreateItemTable(optionsPanel, anchorTo)
     UpdateRecipientHint(row)
   end
 
-  -- Retain is 0 (mail everything) for most rules, so a bright "0" in every
-  -- row would compete with the item/recipient data that actually varies row
-  -- to row. Dimmed the same way an unset Recipient's placeholder text is.
+  -- A Retain of 0 is dimmed like a placeholder.
   local function UpdateRetainColor(row)
     local entry = row.entry
-    if entry and entry.retain and entry.retain > 0 then
+    if entry and entry.retain > 0 then
       row.Retain:SetTextColor(1, 1, 1)
     else
       row.Retain:SetTextColor(0.5, 0.5, 0.5)
     end
   end
 
-  -- Blank or invalid text collapses to 0 (mail everything) rather than being
-  -- rejected, since a Retain box is expected to sit empty for most rules.
+  -- Blank or invalid text becomes 0 (mail everything).
   local function CommitRetain(row)
     local entry = row.entry
     if not entry then return end
@@ -278,23 +225,13 @@ local function CreateItemTable(optionsPanel, anchorTo)
     UpdateRetainColor(row)
   end
 
-  --[[
-    Moves focus to another field of the same rule, for tabbing between the
-    name and recipient boxes.
-
-    Deferred a frame, and located by entry rather than by frame, because
-    leaving a field commits it - and committing a name can rebuild both lists
-    (a name the client resolves to a real item turns that rule into an item
-    rule and moves it to the other table). The row frame is recycled by that
-    rebuild, so a reference captured before it can easily be pointing at a
-    different rule by the time focus lands. Same reason the "Add Name Rule"
-    button defers its SetFocus.
-  ]]
+  -- Tabbing between a rule's fields. Deferred a frame and found by entry,
+  -- because committing a name can rebuild both lists and recycle the row.
   local function FocusEntryField(entry, key)
     if not entry then return end
     C_Timer.After(0, function()
       for _, list in ipairs({ itemList, nameList }) do
-        local frame = list.scrollBox.FindFrame and list.scrollBox:FindFrame(entry)
+        local frame = list.scrollBox:FindFrame(entry)
         if frame and frame[key] then
           frame[key]:SetFocus()
           return
@@ -303,9 +240,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     end)
   end
 
-  -- Scripts are wired once per frame, not once per rule: ScrollBox recycles
-  -- row frames, so handlers read row.entry at call time rather than closing
-  -- over whichever rule the row happened to show when it was created.
+  -- Wired once per recycled frame; handlers read row.entry at call time.
   local function InitRowScripts(row)
     row.RecipientHint:SetPoint("LEFT", row.Recipient, "LEFT", 6, 0)
 
@@ -315,8 +250,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
       self:ClearFocus()
     end)
     row.Name:SetScript("OnEditFocusLost", function() CommitName(row) end)
-    -- Tab goes to this rule's Retain field; shift-tab just leaves the field,
-    -- since nothing precedes the name in a row.
+    -- Shift-tab just leaves: nothing precedes the name.
     row.Name:SetScript("OnTabPressed", function(self)
       local entry = row.entry
       self:ClearFocus()
@@ -368,8 +302,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
       CommitRecipient(row)
     end)
 
-    -- Name Matches rows have no icon: their template omits it, because a
-    -- substring rule doesn't identify an item to draw or to look up.
+    -- Name Matches rows have no icon.
     if row.IconButton then
       row.IconButton:SetScript("OnEnter", function(self)
         local entry = row.entry
@@ -391,8 +324,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     end)
     row.Delete:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- Dropping an item anywhere always means "mail this exact item", so both
-    -- tables' rows add to the Items table rather than to the one dropped on.
+    -- A drop on either table adds an exact item rule.
     row:SetScript("OnClick", function() AddFromCursor() end)
     row:SetScript("OnReceiveDrag", function() AddFromCursor() end)
   end
@@ -405,12 +337,12 @@ local function CreateItemTable(optionsPanel, anchorTo)
       InitRowScripts(row)
     end
 
-    row.Name:SetText(entry.itemName or "")
+    row.Name:SetText(entry.itemName)
     row.Name:SetCursorPosition(0)
-    row.Retain:SetText(tostring(entry.retain or 0))
+    row.Retain:SetText(tostring(entry.retain))
     row.Retain:SetCursorPosition(0)
     UpdateRetainColor(row)
-    row.Recipient:SetText(entry.recipient or "")
+    row.Recipient:SetText(entry.recipient)
     row.Recipient:SetCursorPosition(0)
     row.Recipient.hasFocus = false
 
@@ -420,16 +352,13 @@ local function CreateItemTable(optionsPanel, anchorTo)
     UpdateRecipientHint(row)
 
     local dataProvider = list.scrollBox:GetDataProvider()
-    local index = dataProvider and dataProvider.FindIndex and dataProvider:FindIndex(entry)
+    local index = dataProvider and dataProvider:FindIndex(entry)
     row.Stripe:SetShown((index or 1) % 2 == 0)
   end
 
   --[[ LIST CONSTRUCTION ]]
 
-  -- Both tables are the same stack of widgets - header, blurb, column labels,
-  -- a ScrollBox and scroll bar inside a backdrop, an empty-state message, and
-  -- a button underneath - differing only in their row template, their column
-  -- inset and what their button does.
+  -- Both tables share this layout; spec supplies template, inset and button.
   local function CreateRuleList(spec)
     local list = {}
 
@@ -445,11 +374,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     instructions:SetWidth(LIST_WIDTH)
     instructions:SetText(L[spec.instructions])
 
-    -- Column labels sit at the same x offsets as the matching widgets in the
-    -- row template so they line up with the rows below. Both templates put
-    -- Retain and Recipient at the same offsets; only the first column
-    -- differs, because one template starts with an icon and the other
-    -- doesn't.
+    -- x offsets match the row templates' widgets.
     local function ColumnLabel(xOffset, text)
       local label = optionsPanel:CreateFontString(nil, "OVERLAY")
       label:SetPoint("TOPLEFT", instructions, "BOTTOMLEFT", xOffset, -8)
@@ -471,7 +396,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 8, 0)
     scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 8, 0)
 
-    local backdrop = CreateFrame("Frame", nil, optionsPanel, BackdropTemplateMixin and "BackdropTemplate")
+    local backdrop = CreateFrame("Frame", nil, optionsPanel, "BackdropTemplate")
     backdrop:SetPoint("TOPLEFT", scrollBox, "TOPLEFT", -8, 8)
     backdrop:SetPoint("BOTTOMRIGHT", scrollBar, "BOTTOMRIGHT", 8, -8)
     backdrop.backdropInfo = LIST_BACKDROP
@@ -506,10 +431,7 @@ local function CreateItemTable(optionsPanel, anchorTo)
     list.scrollBox = scrollBox
     list.backdrop = backdrop
     list.button = button
-    -- Rules are edited in place on A.db.items, so a list is redrawn by
-    -- rebuilding its data provider around the current split rather than by
-    -- mutating the provider. RetainScrollPosition keeps a deletion or an edit
-    -- from bouncing the user back to the top of a long list.
+    -- Rebuilt rather than mutated; RetainScrollPosition keeps the scroll offset.
     list.SetEntries = function(entries)
       scrollBox:SetDataProvider(CreateDataProvider(entries), ScrollBoxConstants.RetainScrollPosition)
       emptyText:SetShown(#entries == 0)
@@ -557,16 +479,13 @@ local function CreateItemTable(optionsPanel, anchorTo)
     onClick = function()
       if AddFromCursor() then return end
 
-      local entry = { itemName = "", recipient = "" }
+      local entry = { itemName = "", recipient = "", retain = 0 }
       tinsert(A:GetAutoMailEntries(), entry)
       RefreshLists()
-      if nameList.scrollBox.ScrollToEnd then
-        nameList.scrollBox:ScrollToEnd()
-      end
-      -- The row frame for a brand new rule only exists after the ScrollBox has
-      -- laid out the rebuilt provider, so grab it on the next frame.
+      nameList.scrollBox:ScrollToEnd()
+      -- The new row frame only exists after the ScrollBox lays out.
       C_Timer.After(0, function()
-        local row = nameList.scrollBox.FindFrame and nameList.scrollBox:FindFrame(entry)
+        local row = nameList.scrollBox:FindFrame(entry)
         if row then
           row.Name:SetFocus()
         end
@@ -580,45 +499,15 @@ local function CreateItemTable(optionsPanel, anchorTo)
     nameList.SetEntries(loose)
   end
 
-  --[[
-    THERE IS DELIBERATELY NO CLICK HOOK HERE
-
-    Rules are only ever added by putting an item on the cursor and dropping it
-    on this panel - onto a list, or onto Add Item. That is the whole gesture.
-
-    A shift-click hook used to sit here, post-hooking HandleModifiedItemClick,
-    and it was removed rather than repaired (#88). Every version of it added
-    rules nobody asked for, because the click it wanted is not distinguishable
-    from clicks meant for something else:
-
-      - HandleModifiedItemClick fires for EVERY modified click on an item, so
-        ctrl-click (dress up) and alt-click added rules too.
-
-      - ContainerFrameItemButtonMixin:OnModifiedClick calls it BEFORE its own
-        split-stack branch, so shift-clicking a stack in your bags to split it
-        reached this first.
-
-      - Narrowing to a bare shift-click still was not enough. The container
-        guard was itemLocation:IsBagAndSlot(), and warband bank tabs are bag
-        indices 12-16 - ordinary bag-and-slot containers - so shift-clicking
-        in the warbank sailed through and added a rule there too.
-
-    Each of those was a real gesture belonging to something else that this
-    happened to intercept, and the list was not obviously finished. A drop is
-    unambiguous: nothing else in the UI claims an item dropped onto this panel,
-    and it cannot fire without the panel being open and the player aiming at
-    it. Adding a click gesture back means re-opening all of the above.
-  ]]
+  -- Deliberately no shift-click hook: rules are added only by dropping an item
+  -- on this panel. A HandleModifiedItemClick hook can't tell its click apart
+  -- from dress-up, stack splitting or warbank clicks (#88, see CHANGELOG 6.3.2).
 
   optionsPanel.RefreshItemList = RefreshLists
-  -- Every row's placeholder shows the default Recipient, so editing that
-  -- field has to repaint the rows - without rebuilding the lists out from
-  -- under whichever edit box currently has focus.
+  -- Repaints row placeholders without rebuilding the lists under the focused box.
   optionsPanel.UpdateRecipientHints = function()
     for _, list in ipairs({ itemList, nameList }) do
-      if list.scrollBox.ForEachFrame then
-        list.scrollBox:ForEachFrame(UpdateRecipientHint)
-      end
+      list.scrollBox:ForEachFrame(UpdateRecipientHint)
     end
   end
 
@@ -629,10 +518,7 @@ end
 
 --[[ WIDGET HELPERS ]]
 
--- All of these deliberately create frames with nil names. The panel used to
--- name them ("recipientBox", "boeRecipientBox" in particular), which put
--- generic identifiers straight into _G where any other addon creating the
--- same name would collide - whichever loaded second silently won.
+-- Frames are unnamed on purpose, to keep generic names out of _G.
 local function CreateCheckbox(parent, label, getter, setter)
   local checkbox = CreateFrame("CheckButton", nil, parent, "ChatConfigCheckButtonTemplate")
 
@@ -653,13 +539,8 @@ local function CreateCheckbox(parent, label, getter, setter)
   return checkbox
 end
 
--- OnTextChanged with the userInput guard replaces the old OnKeyUp handlers:
--- it catches pasted text (which fires no key event) and doesn't fire back on
--- the addon's own SetText calls during a refresh.
---
--- warnIfUnknown opts a box into the same subtle "not seen on this account
--- before" marker the rule rows show (see #26 / UpdateRecipientHint) - used
--- by the Recipient and BoE Recipient boxes, not the gold threshold box.
+-- OnTextChanged with the userInput guard catches pastes but not the addon's
+-- own SetText. warnIfUnknown tints unfamiliar recipients (#26).
 local function CreateTextBox(parent, width, getter, setter, numeric, warnIfUnknown)
   local box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
   box:SetSize(width, 30)
@@ -732,21 +613,18 @@ local function CreateMainPanel()
 
   local versionText = panel:CreateFontString(nil, "OVERLAY")
   versionText:SetFontObject("GameFontDisableSmall")
-  -- No "v" prefix here: the TOC version comes from the release tag, which
-  -- already carries one.
+  -- No "v" prefix: the release tag already carries one.
   versionText:SetText(A:GetVersion())
   versionText:SetPoint("LEFT", title, "RIGHT", 8, -2)
 
   local recipientHeader = CreateHeader(panel, "Recipient", title, 0, -15)
 
   local recipientBox = CreateTextBox(panel, 200,
-      function() return A.db.recipient or "" end,
+      function() return A.db.recipient end,
       function(value)
         A.db.recipient = value
-        -- Every row's blank-recipient placeholder shows this value.
-        if panel.UpdateRecipientHints then
-          panel.UpdateRecipientHints()
-        end
+        -- Blank-recipient rows show this value as a placeholder.
+        panel.UpdateRecipientHints()
       end, nil, true)
   recipientBox:SetPoint("TOPLEFT", recipientHeader, "BOTTOMLEFT", 5, 0)
   panel.recipientBox = recipientBox
@@ -758,8 +636,7 @@ local function CreateMainPanel()
       function(value)
         A.meta.useGlobalProfile = value
         A:RefreshActiveProfile()
-        -- Switching profiles swaps the table every control reads from, so
-        -- both pages have to resync, not just this one.
+        -- Both pages read from the swapped table.
         A:RefreshOptionsPanels()
       end)
   globalProfileCB:SetPoint("TOPLEFT", itemsBG, "TOPRIGHT", 20, 0)
@@ -819,8 +696,7 @@ local function CreateFiltersPanel()
       function(value) A.db.limitBoeRarity = value end))
   boeRarityCB:SetPoint("TOPLEFT", boeLevelCB, "BOTTOMLEFT", 0, 0)
 
-  -- UIDropDownMenuTemplate resolves its own sub-frames through _G by name, so
-  -- unlike every other widget here this one has to keep a global name.
+  -- UIDropDownMenuTemplate finds its sub-frames through _G, so it needs a name.
   local rarityDropdown = CreateFrame("Frame", "AutoMailerRarityLimitDropDown", panel, "UIDropDownMenuTemplate")
   rarityDropdown:SetPoint("TOPLEFT", boeRarityCB, "BOTTOMLEFT", -8, -4)
   rarityDropdown.displayMode = "MENU"
@@ -848,7 +724,7 @@ local function CreateFiltersPanel()
   local boeRecipientHeader = CreateHeader(panel, "BoE Recipient", rarityDropdown, 16, -8)
 
   local boeRecipientBox = Track(CreateTextBox(panel, 200,
-      function() return A.db.boeRecipient or "" end,
+      function() return A.db.boeRecipient end,
       function(value) A.db.boeRecipient = value end, nil, true))
   boeRecipientBox:SetPoint("TOPLEFT", boeRecipientHeader, "BOTTOMLEFT", 5, 0)
   panel.boeRecipientBox = boeRecipientBox
@@ -872,7 +748,7 @@ local function CreateFiltersPanel()
   local goldThresholdHeader = CreateHeader(panel, "Gold Threshold", goldCB, 0, -10)
 
   local goldThresholdBox = Track(CreateTextBox(panel, 100,
-      function() return tostring(A.db.goldThreshold or 50000) end,
+      function() return tostring(A.db.goldThreshold) end,
       function(value)
         local number = tonumber(value)
         if number then

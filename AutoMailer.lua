@@ -11,11 +11,8 @@
 --
 -- SPDX-License-Identifier: GPL-3.0-only
 
---[[
-  Entry point: event registration and slash commands. Every handler here is a
-  thin delegation to the module that owns the behavior (Profile, MailQueue,
-  Send, OptionsPanel), so this file stays a map of what the addon reacts to.
-]]
+-- Entry point: event registration and slash commands, each delegating to the
+-- module that owns the behaviour.
 
 local _, A = ...
 
@@ -39,9 +36,6 @@ function E:ADDON_LOADED(name)
 
   A:InitializeSavedVariables()
 
-  -- Populated lazily per recipient as mail actually goes out; /am list reads it.
-  A.itemsSent = {}
-
   SLASH_AUTOMAILER1 = "/automailer"
   SLASH_AUTOMAILER2 = "/am"
   SlashCmdList.AUTOMAILER = function(msg)
@@ -54,30 +48,24 @@ end
 
 function E:PLAYER_ENTERING_WORLD(login, reloadUI)
   if login or reloadUI then
-    -- Builds the known-character roster A:IsKnownCharacter warns against
-    -- (see #26) one login at a time; independent of the login message below,
-    -- so it still runs with that setting off.
+    -- Roster for the unfamiliar-recipient warning (#26); independent of the
+    -- login message setting.
     A:RecordKnownCharacter(A:GetPlayerName(), A:GetRealmName())
   end
 
   if (login or reloadUI) and A.meta.loginMessage and A.loaded then
-    -- No "v" prefix: the TOC version comes from the release tag, which already
-    -- carries one (same reason as Send.lua's run banner).
+    -- No "v" prefix: the release tag already carries one.
     print(A.addonName .. string.format(L["%s loaded"], A:GetVersion()))
   end
 end
 
--- How many frames to wait for Blizzard_MailFrame before giving up. It loads
--- within a frame or two in practice; the cap is only here so a client where it
--- never loads at all fails visibly instead of retrying forever.
+-- Frames to wait for Blizzard_MailFrame before giving up (it normally loads
+-- within one or two).
 local MAIL_FRAME_WAIT_FRAMES = 20
 
 function E:MAIL_SHOW(attempt)
-  -- On the mailbox's first open in a session, Blizzard_MailFrame can still be
-  -- loading when this event reaches us, so MailFrame doesn't exist yet.
-  -- EnsureMailTriggerButton silently no-ops in that case; retry next frame
-  -- instead of permanently missing this open (every later open works fine
-  -- since Blizzard_MailFrame is already loaded by then).
+  -- On the first open of a session Blizzard_MailFrame may still be loading,
+  -- so MailFrame can be nil here; retry next frame.
   if not MailFrame then
     attempt = (attempt or 0) + 1
     if attempt > MAIL_FRAME_WAIT_FRAMES then
@@ -96,9 +84,7 @@ function E:MAIL_SHOW(attempt)
     triggerButton:Show()
   end
 
-  -- Shift is a heavily-used modifier and this kicks off a full run - including
-  -- mailing gold - before you've had a chance to look at anything, so it's now
-  -- off unless explicitly enabled.
+  -- Opt-in: this starts a full run, gold included, before anything is shown.
   if IsShiftKeyDown() and A.meta.autoSendOnShiftOpen then
     A:Log("MAIL_SHOW with shift held; auto-starting send")
     A:StartMailSend()
@@ -134,11 +120,7 @@ local function PrintSentSummary()
     for itemName, count in pairs(items) do
       tinsert(parts, string.format(L["%s x%d"], itemName, count))
     end
-    -- Left as plain punctuation rather than a translation key: a key whose
-    -- English value is ", " would fall back to the literal string ", " as its
-    -- own name, which is exactly what the key-is-the-text scheme can't
-    -- express. If a locale needs a different list separator, that is the point
-    -- to introduce a real key for it.
+    -- Not a translation key: a key-is-the-text scheme can't express ", ".
     local line = table.concat(parts, ", ")
 
     if #line > 0 then
@@ -154,13 +136,7 @@ local function PrintSentSummary()
 end
 
 local function OpenOptions()
-  if A.optionsPanel and A.optionsPanel.category and Settings and Settings.OpenToCategory then
-    local categoryID = A.optionsPanel.category.ID
-    Settings.OpenToCategory(categoryID or A.optionsPanel.category)
-  elseif InterfaceOptionsFrame_OpenToCategory then
-    InterfaceOptionsFrame_OpenToCategory(A.optionsPanel)
-    InterfaceOptionsFrame_OpenToCategory(A.optionsPanel)
-  end
+  Settings.OpenToCategory(A.optionsPanel.category:GetID())
   OpenAllBags()
 end
 
@@ -181,9 +157,7 @@ local function HandleDebug(rest)
     A:Print(string.format(L["'%s' - expected 'on' or 'off'."], value))
     return
   end
-  -- Two whole sentences rather than a stem plus an "enabled"/"disabled"
-  -- fragment: languages that inflect the adjective can't translate the
-  -- fragment without seeing the rest of the sentence.
+  -- Whole sentences, so languages that inflect the adjective can translate them.
   A:Print(A.meta.debugLogging and L["Debug logging enabled."] or L["Debug logging disabled."])
 end
 
@@ -198,11 +172,8 @@ local function PrintStatus()
   print(string.format(L["Debug logging: %s"], A.meta.debugLogging and L["on"] or L["off"]))
 end
 
--- Restores addon-level preferences (login message, debug logging, global
--- profile, auto-send-on-shift-open) to their defaults. Deliberately does not
--- touch the mailing profile (recipients, item rules, gold threshold) -- that
--- is configuration a user builds up over time, not a "setting" this command
--- means to wipe.
+-- Restores addon-level preferences to defaults. Deliberately leaves the mailing
+-- profile (recipients, rules, gold threshold) alone.
 local function HandleReset()
   for key, value in pairs(A:DefaultMeta()) do
     A.meta[key] = value
@@ -210,11 +181,8 @@ local function HandleReset()
   A:Print(L["Settings restored to defaults."])
 end
 
--- Table of { name, help, handler }, so the help list is derived from the same
--- data Dispatch matches against instead of a second hand-maintained block
--- that could drift out of sync (S13). "", "config" and "gui" are silent
--- aliases of "options" (S5): each opens the panel but carries no help text of
--- its own, so help doesn't repeat the same line four times.
+-- { name, help, handler }: help is derived from the dispatch table (S13).
+-- "", "config" and "gui" are silent aliases of "options" (S5).
 local COMMANDS
 local function PrintHelp()
   A:Print(L["Commands:"])
@@ -249,9 +217,7 @@ COMMANDS[#COMMANDS + 1] = {name = "help", help = {L["/am help - show this list"]
 
 function A:SlashCommand(args)
   local command, rest = strsplit(" ", args or "", 2)
-  -- Only the command word is lowercased for matching (S11); `rest` is passed
-  -- through untouched, and the one handler that matches a keyword inside it
-  -- (debug's on/off) lowercases it itself at the point of comparison.
+  -- Only the command word is lowercased (S11); `rest` is passed through as typed.
   command = command and command:lower() or ""
 
   for _, entry in ipairs(COMMANDS) do
@@ -261,8 +227,7 @@ function A:SlashCommand(args)
     end
   end
 
-  -- A typo must be visibly a typo, never a silent fallback to opening the
-  -- options panel as though it had worked (S4).
+  -- Unknown commands are reported, never treated as "options" (S4).
   A:Print(string.format(L["Unknown command: %s"], command))
   PrintHelp()
 end

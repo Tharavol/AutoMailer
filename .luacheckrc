@@ -26,7 +26,7 @@ read_globals = {
 
     -- Frame / UI globals
     "CreateFrame", "UIParent", "WorldFrame", "MailFrame", "MailFrameTab2",
-    "DEFAULT_CHAT_FRAME", "GameFontNormal", "BackdropTemplateMixin",
+    "DEFAULT_CHAT_FRAME", "GameFontNormal",
     "GameTooltip", "hooksecurefunc",
 
     -- ScrollBox / DataProvider API (10.0+ list rendering)
@@ -41,7 +41,7 @@ read_globals = {
     "CloseDropDownMenus",
 
     -- Options / Settings API
-    "Settings", "InterfaceOptionsFrame_OpenToCategory", "InterfaceOptions_AddCategory",
+    "Settings",
 
     -- Namespaces / enums
     "C_Container", "C_Item", "C_Timer", "C_AddOns", "C_CurrencyInfo", "Enum",
