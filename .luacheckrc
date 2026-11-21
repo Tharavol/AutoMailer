@@ -44,7 +44,7 @@ read_globals = {
     "Settings", "InterfaceOptionsFrame_OpenToCategory", "InterfaceOptions_AddCategory",
 
     -- Namespaces / enums
-    "C_Container", "C_Item", "C_Timer", "C_AddOns", "Enum",
+    "C_Container", "C_Item", "C_Timer", "C_AddOns", "C_CurrencyInfo", "Enum",
     "Item", "ItemLocation",
 
     -- Addon metadata (GetAddOnMetadata is the legacy fallback for pre-C_AddOns clients)
@@ -66,7 +66,7 @@ read_globals = {
     "SetSendMailMoney", "MoneyInputFrame_SetCopper",
 
     -- Money / misc
-    "GetMoney", "GetCoinTextureString", "UnitLevel", "IsShiftKeyDown", "UnitName", "GetRealmName",
+    "GetMoney", "UnitLevel", "IsShiftKeyDown", "UnitName", "GetRealmName",
 
     -- Localization
     "GetLocale",

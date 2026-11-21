@@ -139,7 +139,7 @@ local function InstallFakeMailForm(A, opts)
   _G.C_AddOns = { GetAddOnMetadata = function() return "test" end }
   _G.NUM_BAG_SLOTS = opts.numBagSlots or 0
   _G.REAGENTBAG_CONTAINER = 5
-  _G.GetCoinTextureString = function(copper) return copper .. "c" end
+  _G.C_CurrencyInfo = { GetCoinTextureString = function(copper) return copper .. "c" end }
 
   _G.MailFrame = { IsShown = function() return true end }
   _G.MailFrameTab2 = { Click = function() end }

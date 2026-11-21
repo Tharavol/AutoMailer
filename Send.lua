@@ -72,7 +72,7 @@ local function BuildConfirmationText(summary)
     tinsert(lines, string.format(
         L["Roughly %s to %s.\n" ..
         "(The exact amount is worked out at send time so postage lands you on your threshold.)"],
-        GetCoinTextureString(summary.goldCopper), summary.goldRecipient))
+        C_CurrencyInfo.GetCoinTextureString(summary.goldCopper), summary.goldRecipient))
   end
 
   return L["AutoMailer is about to send:"] .. "\n\n" .. table.concat(lines, "\n\n")
@@ -600,9 +600,9 @@ function A:FinishSendMailBatch(batch, subject, money, attachedCount, pendingSent
   -- - but the branch stays honest rather than assuming that holds.
   if attachedCount > 0 and money > 0 then
     A:Print(string.format(L["Sent %d item(s) and %s to %s"],
-        attachedCount, GetCoinTextureString(money), batch.recipient))
+        attachedCount, C_CurrencyInfo.GetCoinTextureString(money), batch.recipient))
   elseif money > 0 then
-    A:Print(string.format(L["Sent %s to %s"], GetCoinTextureString(money), batch.recipient))
+    A:Print(string.format(L["Sent %s to %s"], C_CurrencyInfo.GetCoinTextureString(money), batch.recipient))
   else
     A:Print(string.format(L["Sent %d item(s) to %s"], attachedCount, batch.recipient))
   end
