@@ -82,7 +82,7 @@ Adopts the cross-addon slash command standard (#84).
 - The column-label widgets in the options panel's rule tables (`Item`/`Retain`/`Recipient`) are now built through one shared helper instead of three near-identical blocks ([#79](https://github.com/Tharavol/AutoMailer/issues/79)).
 - The suite is up from 100 tests to 108.
 
-## [6.1] - 2026-08-07
+## [6.1] - 2026-08-06
 
 ### Added
 - **AutoMailer now warns, without ever blocking, when a recipient doesn't match a character seen on this account before** ([#26](https://github.com/Tharavol/AutoMailer/issues/26)). A recipient's row in the options panel gets a subtle tint, and a run mailing to one prints a heads-up before it starts. Mailing outside the account (a guild bank alt, a friend) is completely normal, so this is a nudge against typos, never a gate - and it stays quiet until the account-wide roster has logged in on at least two characters, since a single-entry roster hasn't actually confirmed anything is absent yet.
@@ -91,7 +91,7 @@ Adopts the cross-addon slash command standard (#84).
 - The roster is accumulated one login at a time into `AutoMailerGlobal`, the approach settled on in [#76](https://github.com/Tharavol/AutoMailer/issues/76): no addon-readable API exposes the account's own character list, so this is written from scratch rather than reading a client-provided source.
 - The suite is up from 88 tests to 100.
 
-## [6.0] - 2026-08-07
+## [6.0] - 2026-08-06
 
 ### Changed
 - **The addon is now titled "AutoMailer Continued"** in the client's AddOns list ([#8](https://github.com/Tharavol/AutoMailer/issues/8)), reflecting that this is a continuation of an addon whose original CurseForge listing is no longer maintained. Nothing else about its identity changed: the shipped folder, slash commands, chat output and SavedVariables are all still `AutoMailer`, so an existing install upgrades in place with no reconfiguration.
