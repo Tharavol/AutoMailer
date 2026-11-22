@@ -2,7 +2,7 @@
 
 All notable changes to AutoMailer are documented in this file.
 
-## [Unreleased]
+## [6.4.0] - 2026-11-21
 
 ### Fixed
 - **Mailing gold no longer ends in a Lua error** ([#95](https://github.com/Tharavol/AutoMailer/issues/95)). The gold confirmation and the "Sent ... to ..." messages called `GetCoinTextureString`, a global the current client no longer has. They now use `C_CurrencyInfo.GetCoinTextureString`, which exists on retail and on WoW Forever.
